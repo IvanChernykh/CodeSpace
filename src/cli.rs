@@ -690,9 +690,12 @@ fn command_workspace(args: &ParsedArgs) -> Result<i32> {
             let path = args.positionals.get(1).map_or(".", String::as_str);
             let name = args.value("name").map(|s| s.as_str());
             let mut registry = crate::workspace::load_global_registry();
-            let ws = registry.register(Path::new(path), name)?;
+            let (name, id) = {
+                let ws = registry.register(Path::new(path), name)?;
+                (ws.name.clone(), ws.id.clone())
+            };
             crate::workspace::save_global_registry(&registry)?;
-            println!("Registered workspace `{}` (id={})", ws.name, ws.id);
+            println!("Registered workspace `{name}` (id={id})");
             Ok(0)
         }
         "remove" | "rm" => {

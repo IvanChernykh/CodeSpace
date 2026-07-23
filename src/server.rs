@@ -280,10 +280,11 @@ fn handle_connection(
             let mut state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
             match state_guard.workspaces.register(Path::new(path), name) {
                 Ok(ws) => {
+                    let (id, name, path) = (ws.id.clone(), ws.name.clone(), ws.path.clone());
                     let _ = crate::workspace::save_global_registry(&state_guard.workspaces);
                     let body = format!(
                         "{{\"id\":\"{}\",\"name\":\"{}\",\"path\":\"{}\"}}",
-                        json_escape(&ws.id), json_escape(&ws.name), json_escape(&ws.path)
+                        json_escape(&id), json_escape(&name), json_escape(&path)
                     );
                     write_json_response(&mut stream, 200, &body)
                 }
