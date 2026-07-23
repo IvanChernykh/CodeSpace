@@ -1,0 +1,55 @@
+name: CI report
+
+on:
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+jobs:
+  report:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Publish CI evidence to pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr_number="$(jq -r '.workflow_run.pull_requests[0].number // empty' "$GITHUB_EVENT_PATH")"
+          if [[ -z "$pr_number" ]]; then
+            echo "No pull request associated with workflow run ${RUN_ID}; nothing to report."
+            exit 0
+          fi
+
+          {
+            echo "## CodeSpace CI report"
+            echo
+            echo "Overall conclusion: **${RUN_CONCLUSION}**"
+            echo
+            echo "### Jobs"
+            gh run view "$RUN_ID" --repo "$GITHUB_REPOSITORY" --json jobs --jq '.jobs[] | "- **\(.name)**: \(.conclusion // .status)"'
+            echo
+            echo "[Open complete Actions run](${RUN_URL})"
+
+            if [[ "$RUN_CONCLUSION" != "success" ]]; then
+              echo
+              echo "### Failed-step logs"
+              echo
+              echo '```text'
+              gh run view "$RUN_ID" --repo "$GITHUB_REPOSITORY" --log-failed 2>&1 | tail -c 50000 || true
+              echo
+              echo '```'
+            fi
+          } > /tmp/ci-report.md
+
+          gh pr comment "$pr_number" --repo "$GITHUB_REPOSITORY" --body-file /tmp/ci-report.md
