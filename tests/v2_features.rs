@@ -3,12 +3,11 @@ use codespace::indexer::{build, IndexOptions};
 use codespace::model::{Edge, EdgeKind, PrecisionTier};
 use codespace::skills::{SkillPermission, SkillRegistry};
 use codespace::storage;
-use codespace::workspace::{WorkspaceEntry, WorkspaceRegistry};
+use codespace::workspace::WorkspaceRegistry;
 use codespace::events::{Event, EventType};
 use codespace::settings::Settings;
-use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn temp_project(name: &str) -> PathBuf {
@@ -126,7 +125,7 @@ fn workspace_registry_register_and_select() {
         .unwrap_or_else(|error| panic!("register: {error}"));
     assert_eq!(ws.name, "test-ws");
     assert!(registry.active().is_some());
-    assert_eq!(registry.active().unwrap_or_else(|e| panic!("active: {e:?}")).name, "test-ws");
+    assert_eq!(registry.active().expect("active").name, "test-ws");
     let _ = fs::remove_dir_all(root);
 }
 
@@ -135,11 +134,11 @@ fn workspace_registry_remove_updates_active() {
     let root1 = temp_project("ws-rm-1");
     let root2 = temp_project("ws-rm-2");
     let mut registry = WorkspaceRegistry::new();
-    let ws1 = registry.register(&root1, None).unwrap_or_else(|e| panic!("register1: {e}"));
-    let ws2 = registry.register(&root2, None).unwrap_or_else(|e| panic!("register2: {e}"));
-    assert_eq!(registry.active().unwrap_or_else(|e| panic!("active: {e:?}")).id, ws2.id);
-    registry.remove(&ws2.id).unwrap_or_else(|e| panic!("remove: {e}"));
-    assert_eq!(registry.active().unwrap_or_else(|e| panic!("active2: {e:?}")).id, ws1.id);
+    let ws1_id = registry.register(&root1, None).unwrap_or_else(|e| panic!("register1: {e}")).id.clone();
+    let ws2_id = registry.register(&root2, None).unwrap_or_else(|e| panic!("register2: {e}")).id.clone();
+    assert_eq!(registry.active().expect("active").id, ws2_id);
+    registry.remove(&ws2_id).unwrap_or_else(|e| panic!("remove: {e}"));
+    assert_eq!(registry.active().expect("active").id, ws1_id);
     let _ = fs::remove_dir_all(root1);
     let _ = fs::remove_dir_all(root2);
 }
@@ -157,8 +156,8 @@ fn skill_registry_has_builtins() {
 #[test]
 fn skill_registry_enable_disable() {
     let mut registry = SkillRegistry::new();
-    let skill = registry.list().first().unwrap_or_else(|| panic!("no skills"));
-    let id = skill.id.clone();
+    let skills = registry.list();
+    let id = skills.first().expect("no skills").id.clone();
     registry.disable(&id).unwrap_or_else(|e| panic!("disable: {e}"));
     assert!(!registry.skills.get(&id).unwrap_or_else(|| panic!("skill missing")).enabled);
     registry.enable(&id).unwrap_or_else(|e| panic!("enable: {e}"));

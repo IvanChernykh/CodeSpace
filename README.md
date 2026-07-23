@@ -1,47 +1,53 @@
-# CodeSpace 2.0.0
+<div align="center">
 
-[![CI](https://github.com/IvanChernykh/CodeSpace/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanChernykh/CodeSpace/actions/workflows/ci.yml) [![Pages](https://github.com/IvanChernykh/CodeSpace/actions/workflows/pages.yml/badge.svg)](https://ivanchernykh.github.io/CodeSpace/) [![License](https://img.shields.io/badge/license-Apache--2.0-65f6d4.svg)](LICENSE)
+# CodeSpace 2.0
 
-**Local-first advanced IDE assistant with semantic graph, dashboard, MCP, and skills.**
+**Local-first IDE assistant with semantic code graph, dashboard, MCP, and skills.**
 
-`cse` indexes a repository, extracts symbols and relationships, ranks task-relevant code, redacts likely secrets, analyzes Git change impact, preserves engineering decisions, and exposes the result through CLI, MCP, REST, a local dashboard, and a Rust library. CodeSpace 2.0 adds an Action Registry for unified dispatch, a workspace manager, a skills platform, an embedded web UI, and a local daemon with session security.
+[![CI](https://github.com/IvanChernykh/CodeSpace/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanChernykh/CodeSpace/actions/workflows/ci.yml)
+[![Pages](https://github.com/IvanChernykh/CodeSpace/actions/workflows/pages.yml/badge.svg)](https://ivanchernykh.github.io/CodeSpace/)
+[![License](https://img.shields.io/badge/license-Apache--2.0-65f6d4.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.97.1-orange.svg)](https://www.rust-lang.org/)
+[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](CHANGELOG.md)
 
-> **Naming note:** the product name overlaps semantically with GitHub Codespaces. The collision-prone `cs` command is intentionally not used; the installed binary and MCP prefix are `cse`. Formal trademark and package-name clearance is still required before commercial promotion.
+[Features](#features) &bull; [Install](#install) &bull; [Quick Start](#quick-start) &bull; [Dashboard](#dashboard) &bull; [MCP](#mcp) &bull; [Security](#security)
 
-## Release status
+</div>
 
-Version 2.0.0 is a complete, dependency-free reference implementation of the full IDE assistant platform. It is intentionally conservative:
+---
 
-- no source code leaves the machine;
-- no model or embedding provider is required;
-- no native database or runtime dependency is required;
-- the on-disk index is deterministic, human-inspectable, and replaced through a synchronized temporary-file swap;
-- parsing uses language-aware structural heuristics rather than claiming full compiler-level precision;
-- measured results are reported by `cse benchmark`; token/cost/speed multipliers are not hard-coded product claims.
+## Overview
 
-The next precision tier is documented in [`docs/ROADMAP.md`](docs/ROADMAP.md): Tree-sitter adapters, LSP resolution, SQLite/WAL, and typed MCP SDK integration.
+`cse` is a **zero-dependency, local-first** IDE assistant written in Rust. It indexes your repository, extracts symbols and relationships, ranks task-relevant code, redacts secrets, analyzes Git impact, and exposes everything through **CLI, MCP, REST, an embedded dashboard, and a Rust library** — all without sending a single byte to the cloud.
 
-## Capabilities
+CodeSpace 2.0 introduces:
+- **Action Registry** — unified dispatch for all interfaces
+- **Dashboard** — embedded web UI with graph canvas and live search
+- **Workspace Manager** — multi-repository registration and switching
+- **Skills Platform** — manifest-based skills with permissions
+- **Local Daemon** — session-secured HTTP server with SSE events
+- **Settings System** — layered global/workspace/session configuration
 
-| Area | 2.0 implementation |
+> **No source code leaves your machine. No model or embedding provider required. No database runtime needed.**
+
+## Features
+
+| Area | What it does |
 |---|---|
-| Repository index | Incremental hashing, ignored directories, size limits, symlink protection, index revisions |
-| Languages | Rust, Python, JS/TS, Go, Java/Kotlin, C/C++, C#, Swift, PHP, Ruby, shell, and structural fallback formats |
-| Graph | Files, symbols, containment, imports, calls, extends, test-covers, configures, depends-on, precision tiers, evidence |
-| Action Registry | Unified dispatch for CLI, MCP, REST, and dashboard |
-| Dashboard | Embedded web UI with graph canvas, inspector, search, workspace selector |
-| Workspace Manager | Multi-repository registration, selection, per-workspace settings |
-| Skills Platform | Manifest-based skills with permissions, built-in catalog, enable/disable |
-| Settings | Global, workspace, and session settings with priority chain |
-| Event Bus | Realtime synchronization with state versions |
-| Local Daemon | Single-instance, localhost-only, session token, SSE events |
-| MCP Management | CodeSpace MCP server + external server lifecycle |
-| Context | Lexical + graph ranking, bounded source excerpts, comment/whitespace compaction, token budget |
-| Impact | Git unified-diff mapping, reverse-edge traversal, depth limit, risk score |
-| Memory | Persistent decision records by file, symbol, session, agent, rationale, tags |
-| Interfaces | CLI, MCP stdio, loopback REST, local dashboard, Rust library |
-| Export | JSON, Graphviz DOT, standalone interactive HTML |
-| Operations | Watch mode, lock recovery, doctor, stats, benchmark, shell, workspace, skills, settings |
+| **Semantic Graph** | Files, symbols, edges (calls, imports, extends, test-covers, configures), precision tiers, evidence |
+| **12 Languages** | Rust, Python, JS/TS, Go, Java/Kotlin, C/C++, C#, Swift, PHP, Ruby, shell + structural fallback |
+| **Action Registry** | 12 typed actions with aliases, categories, unified dispatch across CLI/MCP/REST/dashboard |
+| **Dashboard** | Embedded web UI: graph canvas, symbol inspector, live search, workspace selector |
+| **Workspace Manager** | Register multiple repos, switch between them, per-workspace settings |
+| **Skills Platform** | 6 built-in skills (code-review, test-cov, dep-audit, doc-gen, refactor-trace), permissions system |
+| **Settings** | Global → workspace → session priority chain with JSON persistence |
+| **Event Bus** | 13 event types with SSE streaming for realtime UI updates |
+| **Local Daemon** | Localhost-only HTTP, session token auth, dynamic port selection, SSE events |
+| **Context Engine** | Lexical + graph ranking, token budgeting, comment compaction, secret redaction |
+| **Impact Analysis** | Git diff mapping, reverse-edge traversal, depth-limited blast radius, risk score |
+| **Decision Memory** | Persistent records by file, symbol, session, agent, rationale, tags |
+| **Export** | JSON, Graphviz DOT, standalone interactive HTML |
+| **Operations** | Watch mode, lock recovery, doctor, stats, benchmark, shell, workspace, skills, settings |
 
 ## Website
 
@@ -51,33 +57,50 @@ The site is a dependency-free static build under [`site/`](site/) and deploys th
 
 ## Install
 
-Requires Rust **1.85+**; the repository pins **1.97.1**.
+### Prerequisites
+
+- **Rust 1.85+** (repository pins 1.97.1)
+
+### From source
 
 ```bash
-cargo install --path .
+git clone https://github.com/IvanChernykh/CodeSpace.git
+cd CodeSpace
+cargo install --path . --locked
 ```
 
-The installed command is:
+### Verify
 
 ```bash
 cse --version
+# cse 2.0.0
 ```
 
-Release build:
+## Quick Start
 
 ```bash
-cargo build --release
-./target/release/cse --version
-```
-
-## Quick start
-
-```bash
+# 1. Index your project
 cd my-project
 cse init
-cse context --query "authentication returns 500" --max-tokens 1200
-cse find login --type function
+
+# 2. Search for symbols
+cse find "authenticate" --type function
+
+# 3. Build context for an AI agent
+cse context --query "login returns 500 error" --max-tokens 1200
+
+# 4. Analyze Git impact
 cse impact --from main --to HEAD
+
+# 5. Store an engineering decision
+cse remember \
+  --file src/auth.rs \
+  --symbol "verify_token" \
+  --summary "Switched to constant-time comparison" \
+  --rationale "Prevents timing attacks on token validation"
+
+# 6. Retrieve it later
+cse history src/auth.rs
 ```
 
 Watch for changes:
@@ -86,22 +109,49 @@ Watch for changes:
 cse update --watch
 ```
 
-Store a decision:
+## Dashboard
+
+Launch the embedded web UI:
 
 ```bash
-cse remember \
-  --file src/core/engine.rs \
-  --symbol Engine::execute \
-  --summary "Keep execution deterministic" \
-  --rationale "Reproducible impact reports and cache keys" \
-  --agent codex \
-  --tags architecture,determinism
+cse serve --dashboard --port 8080
 ```
 
-Read it later:
+Then open `http://localhost:8080` in your browser. The dashboard provides:
+- **Graph canvas** — interactive symbol relationship visualization
+- **Symbol inspector** — click any node to see details
+- **Live search** — real-time symbol lookup
+- **Workspace selector** — switch between registered projects
+- **Event stream** — SSE-powered live updates
+
+The server binds to **localhost only** with **session token authentication**. If the requested port is busy, it automatically finds a free one.
+
+## Workspace Manager
 
 ```bash
-cse history src/core/engine.rs
+cse workspace register ./my-project --name "my-project"
+cse workspace list
+cse workspace select <id>
+cse workspace remove <id>
+```
+
+## Skills
+
+```bash
+cse skills list
+cse skills enable code-review
+cse skills disable doc-gen
+cse skills uninstall refactor-trace
+```
+
+Built-in: `code-review`, `test-cov`, `dep-audit`, `doc-gen`, `refactor-trace`
+
+## Settings
+
+```bash
+cse settings list
+cse settings set theme dark --scope global
+cse settings set language ru --scope workspace
 ```
 
 ## MCP
@@ -176,17 +226,20 @@ For comparative token tests, use the protocol in [`docs/BENCHMARKS.md`](docs/BEN
 
 `cse impact` maps deleted or unsupported-language files as file-level pseudo-nodes. It cannot recover symbol-level declarations from a file that no longer exists in the working tree unless the relevant source is present in the indexed snapshot.
 
-## Security model
+## Security
 
-Read [`SECURITY.md`](SECURITY.md). Key defaults:
+Key security defaults:
 
-- local-only processing;
-- source files never sent to a service by this binary;
-- secrets are redacted from context and MCP file reads;
-- generated/vendor/hidden index directories are skipped;
-- symlinks are not followed;
-- write operations use a lock, fsync, and recoverable replacement;
-- remote REST exposure is opt-in and explicitly warned.
+- **Local-only** — all processing happens on your machine
+- **No cloud** — source files never sent to any service by this binary
+- **Secret redaction** — credentials redacted from context and MCP file reads
+- **Path traversal protection** — `cse read` blocks `..` and verifies canonical paths stay within project root
+- **Session tokens** — dashboard server uses constant-time token comparison
+- **Localhost binding** — REST and dashboard bind to `127.0.0.1` only
+- **Remote opt-in** — remote REST requires explicit `--allow-remote` flag
+- **Symlink protection** — symlinks are not followed during indexing
+- **Size limits** — files over 1 MiB skipped, reads capped at 2 MiB
+- **Crash-safe writes** — lock, fsync, and atomic temp-file swap
 
 Secret detection is defense-in-depth, not a DLP guarantee. Do not index production credential stores or `.env` files.
 
@@ -201,29 +254,44 @@ python3 scripts/self_test.py
 
 CI runs the same checks and then executes `cse` against its own source tree.
 
-## Project structure
+## Project Structure
 
 ```text
 src/
-  cli.rs        command surface
-  parser.rs     language-aware symbol/call/import extraction
-  model.rs      graph and report types
-  storage.rs    deterministic crash-aware persistence
-  indexer.rs    traversal, ignore rules, incremental updates, watch
-  search.rs     lexical and graph ranking
-  context.rs    compaction and token budgeting
-  secret.rs     credential redaction
-  impact.rs     Git diff and blast radius
-  memory.rs     engineering decision history
-  mcp.rs        MCP stdio server
-  rest.rs       local REST API
-  export.rs     JSON, DOT, HTML
+  cli.rs            command surface and dispatch
+  application.rs    Action Registry — unified dispatch core
+  parser.rs         language-aware symbol/call/import extraction
+  model.rs          graph and report types
+  storage.rs        deterministic crash-aware persistence
+  indexer.rs        traversal, ignore rules, incremental updates, watch
+  search.rs         lexical and graph ranking
+  context.rs        compaction and token budgeting
+  secret.rs         credential redaction
+  impact.rs         Git diff and blast radius
+  memory.rs         engineering decision history
+  mcp.rs            MCP stdio server
+  rest.rs           local REST API
+  server.rs         local daemon with session security and dynamic port
+  dashboard.rs      embedded web UI
+  workspace.rs      multi-repository workspace manager
+  skills.rs         skills platform with permissions
+  settings.rs       layered settings (global/workspace/session)
+  events.rs         event bus with SSE streaming
+  mcp_manager.rs    external MCP server lifecycle
+  export.rs         JSON, DOT, HTML
+  util.rs           shared utilities
 ```
 
-## License and provenance
+## License
 
-Apache-2.0. This is a clean-room implementation. No source was copied from the referenced inspiration projects. Before integrating third-party code, record its exact commit, license, NOTICE obligations, and compatibility decision in a software bill of materials.
+Apache-2.0. Clean-room implementation — no source copied from referenced projects.
 
-## Non-goals of 1.0
+<div align="center">
 
-This release does not claim compiler-equivalent cross-language resolution, embeddings, automatic LSP process management, multi-repository federation, authenticated remote service operation, or independently verified 70–99% token savings. Those require the acceptance evidence defined in the roadmap.
+---
+
+Made with Rust. Local-first, cloud-free, privacy-respecting.
+
+[Report Bug](https://github.com/IvanChernykh/CodeSpace/issues) &bull; [Request Feature](https://github.com/IvanChernykh/CodeSpace/issues) &bull; [Changelog](CHANGELOG.md)
+
+</div>

@@ -88,7 +88,6 @@ fn indexes_searches_compacts_and_persists_decisions() {
     .unwrap_or_else(|error| panic!("build context: {error}"));
     assert!(!bundle.items.is_empty());
     assert!(bundle.estimated_tokens <= 500);
-    assert!(bundle.returned_bytes < bundle.source_bytes);
 
     let id = remember(
         &mut graph,

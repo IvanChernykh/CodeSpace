@@ -1,4 +1,4 @@
-use crate::model::{Error, Result};
+use crate::model::Result;
 use crate::util::json_escape;
 use std::collections::BTreeMap;
 use std::fs;

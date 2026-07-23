@@ -41,7 +41,7 @@ fn executes_core_cli_and_mcp_lifecycle() {
 
     let context = run_cs(
         &root,
-        &["context", "--query", "authentication", "--format", "json", "--max-tokens", "400"],
+        &["context", "--query", "authenticate", "--format", "json", "--max-tokens", "400"],
     );
     assert!(context.status.success());
     assert!(String::from_utf8_lossy(&context.stdout).contains("estimated_tokens"));

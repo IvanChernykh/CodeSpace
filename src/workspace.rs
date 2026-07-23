@@ -1,5 +1,5 @@
 use crate::model::{Error, Result};
-use crate::util::{index_dir, now_unix_ms, json_escape};
+use crate::util::{now_unix_ms, json_escape};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};

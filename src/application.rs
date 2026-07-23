@@ -9,7 +9,7 @@ use crate::storage;
 use crate::util::{json_escape, normalized_relative};
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActionCategory {
@@ -494,9 +494,16 @@ fn action_read(ctx: &ActionContext, params: &ActionParams) -> Result<ActionResul
     if file.is_empty() {
         return Err(Error::InvalidArgument("file path is required for read".to_string()));
     }
+    if file.contains("..") {
+        return Err(Error::InvalidArgument("path traversal is not allowed".to_string()));
+    }
     let max_lines = params.get_usize("max-lines").unwrap_or(400).clamp(1, 5_000);
     let path = ctx.root.join(&file);
     let canonical = fs::canonicalize(&path)?;
+    let canonical_root = fs::canonicalize(&ctx.root).unwrap_or_else(|_| ctx.root.to_path_buf());
+    if !canonical.starts_with(&canonical_root) {
+        return Err(Error::InvalidArgument("path escapes project root".to_string()));
+    }
     let relative = normalized_relative(&ctx.root, &canonical)?;
     if relative == ".git" || relative == ".codespace"
         || relative.starts_with(".git/") || relative.starts_with(".codespace/")

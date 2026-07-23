@@ -1,8 +1,7 @@
 use crate::model::{Error, Result};
 use crate::util::{json_escape, now_unix_ms, stable_id};
 use std::collections::BTreeMap;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SkillPermission {

@@ -1,4 +1,4 @@
-use crate::application::{ActionContext, ActionParams, ActionRegistry, OutputFormat, ActionResult};
+use crate::application::{ActionContext, ActionParams, ActionRegistry, OutputFormat};
 use crate::events::Event;
 use crate::model::{Error, GraphIndex, Result};
 use crate::storage;
@@ -10,9 +10,8 @@ use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-const BOOTSTRAP_TOKEN_LEN: usize = 32;
 const READ_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_REQUEST_SIZE: usize = 1_048_576;
 
@@ -38,20 +37,32 @@ impl ServerConfig {
 }
 
 fn generate_token() -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos());
+    use std::time::SystemTime;
+    let nanos = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_or(0u128, |d| d.as_nanos());
     let pid = std::process::id();
-    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
-    for byte in now.to_string().as_bytes() {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    let stack_addr = &nanos as *const u128 as usize;
+    let mut state = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in nanos.to_le_bytes().iter() {
+        state ^= u64::from(*byte);
+        state = state.wrapping_mul(0x0000_0100_0000_01b3);
     }
-    for byte in pid.to_string().as_bytes() {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    for byte in (pid as u64).to_le_bytes().iter() {
+        state ^= u64::from(*byte);
+        state = state.wrapping_mul(0x0000_0100_0000_01b3);
     }
-    format!("{:016x}{:016x}", hash, hash.wrapping_mul(0x100000001b3))
+    for byte in (stack_addr as u64).to_le_bytes().iter() {
+        state ^= u64::from(*byte);
+        state = state.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    for round in 0..16u64 {
+        state ^= round.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        state = state.wrapping_mul(0x100000001b3);
+    }
+    let part1 = state;
+    let part2 = state.wrapping_mul(0x100000001b3) ^ 0x6c62_2e35_7662_7a6f;
+    format!("{:016x}{:016x}", part1, part2)
 }
 
 #[derive(Debug, Clone)]
@@ -96,10 +107,11 @@ pub fn discover_instance(port: u16) -> Option<ServerConfig> {
     }
 }
 
-pub fn serve(root: &Path, config: ServerConfig) -> Result<()> {
+pub fn serve(root: &Path, mut config: ServerConfig) -> Result<()> {
+    let listener = bind_with_dynamic_port(&mut config)?;
     let address = config.address();
-    let listener = TcpListener::bind(&address)?;
     eprintln!("CodeSpace server listening on http://{address}");
+    eprintln!("Session token: {}", config.bootstrap_token);
     let state = Arc::new(Mutex::new(ServerState::new(config)));
     let registry = Arc::new(ActionRegistry::new());
     let root = Arc::new(root.to_path_buf());
@@ -120,6 +132,29 @@ pub fn serve(root: &Path, config: ServerConfig) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn bind_with_dynamic_port(config: &mut ServerConfig) -> Result<TcpListener> {
+    let start_port = config.port;
+    for offset in 0..100u16 {
+        let port = start_port.saturating_add(offset);
+        let address = format!("{}:{}", config.host, port);
+        match TcpListener::bind(&address) {
+            Ok(listener) => {
+                if offset > 0 {
+                    eprintln!("Port {start_port} was busy, using port {port} instead");
+                }
+                config.port = port;
+                return Ok(listener);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => continue,
+            Err(e) => return Err(Error::Io(e)),
+        }
+    }
+    Err(Error::InvalidArgument(format!(
+        "no free port found in range {start_port}..{}",
+        start_port.saturating_add(100)
+    )))
 }
 
 fn handle_connection(
@@ -354,25 +389,34 @@ fn is_localhost_request(peer: Option<std::net::SocketAddr>) -> bool {
     }
 }
 
-fn check_authorization(request: &str, _state: &Arc<Mutex<ServerState>>) -> bool {
+fn check_authorization(request: &str, state: &Arc<Mutex<ServerState>>) -> bool {
+    let expected_token = {
+        let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
+        state_guard.config.bootstrap_token.clone()
+    };
+    if expected_token.is_empty() {
+        return false;
+    }
     if let Some(auth_line) = request.lines().find(|line| {
         line.to_ascii_lowercase().starts_with("authorization:")
     }) {
         let token = auth_line.split(':').nth(1).unwrap_or("").trim();
-        if token.starts_with("Bearer ") {
-            let _provided = token.strip_prefix("Bearer ").unwrap_or("");
-            return true;
+        if let Some(provided) = token.strip_prefix("Bearer ") {
+            return constant_time_eq(provided.as_bytes(), expected_token.as_bytes());
         }
     }
-    if let Some(origin_line) = request.lines().find(|line| {
-        line.to_ascii_lowercase().starts_with("origin:")
-    }) {
-        let origin = origin_line.split(':').nth(1).unwrap_or("").trim();
-        if origin == "http://localhost" || origin == "http://127.0.0.1" || origin.is_empty() {
-            return true;
-        }
+    false
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
     }
-    true
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
 }
 
 fn load_graph(root: &Path) -> Result<GraphIndex> {

@@ -165,11 +165,12 @@ impl McpManager {
                 let args: Vec<String> = s.args.iter().map(|a| format!("\"{}\"", json_escape(a))).collect();
                 let env_pairs: Vec<String> = s.env.iter().map(|(k, v)| format!("\"{}\":\"{}\"", json_escape(k), json_escape(v))).collect();
                 format!(
-                    "{{\"id\":\"{}\",\"name\":\"{}\",\"command\":\"{}\",\"args\":[{}],\"status\":\"{}\",\"auto_start\":{},\"registered_unix_ms\":{},\"last_started_unix_ms\":{},\"last_error\":\"{}\"}}",
+                    "{{\"id\":\"{}\",\"name\":\"{}\",\"command\":\"{}\",\"args\":[{}],\"env\":{{{}}},\"status\":\"{}\",\"auto_start\":{},\"registered_unix_ms\":{},\"last_started_unix_ms\":{},\"last_error\":\"{}\"}}",
                     json_escape(&s.id),
                     json_escape(&s.name),
                     json_escape(&s.command),
                     args.join(","),
+                    env_pairs.join(","),
                     s.status.as_str(),
                     s.auto_start,
                     s.registered_unix_ms,

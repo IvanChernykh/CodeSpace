@@ -1,5 +1,6 @@
 /target/
 .codespace/
+artifacts/
 *.tmp
 *.log
 .DS_Store

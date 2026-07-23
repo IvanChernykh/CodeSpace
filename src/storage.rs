@@ -418,7 +418,7 @@ mod tests {
         let graph = GraphIndex::empty(root.to_string_lossy().to_string(), 1);
         save(&root, &graph).unwrap_or_else(|error| panic!("save graph: {error}"));
         let loaded = load(&root).unwrap_or_else(|error| panic!("load graph: {error}"));
-        assert_eq!(loaded.schema_version, 1);
+        assert_eq!(loaded.schema_version, 2);
         let path = index_path(&root);
         let backup = backup_path(&path);
         fs::rename(&path, &backup)
