@@ -1,0 +1,15 @@
+{
+  "release": "v1.0.0",
+  "repository": "IvanChernykh/CodeSpace",
+  "shell_command": "cse",
+  "acceptance": {
+    "pull_request_3_merged": true,
+    "ci": "success",
+    "pages": "success",
+    "release_workflow": "success",
+    "tag": "v1.0.0",
+    "release_assets_minimum": 10,
+    "pages_url": "https://ivanchernykh.github.io/CodeSpace/"
+  },
+  "verified_by": "independent public GitHub API and Pages HTTP checks"
+}
