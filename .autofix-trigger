@@ -1,0 +1,1 @@
+Apply rustfmt and machine-applicable Rust fixes before the final CI gate.
