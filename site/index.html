@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#07111f">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="CodeSpace is a local-first semantic code graph and compact context engine for AI coding agents.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="CodeSpace — Give AI the code that matters">
+  <meta property="og:description" content="Local-first semantic code graph, compact context, impact analysis, and engineering memory in one Rust binary.">
+  <meta property="og:url" content="https://ivanchernykh.github.io/CodeSpace/">
+  <meta property="og:image" content="https://ivanchernykh.github.io/CodeSpace/assets/og-card.svg">
+  <meta name="twitter:card" content="summary_large_image">
+  <title>CodeSpace — Local-first context engine for AI coding agents</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <canvas id="graph-canvas" aria-hidden="true"></canvas>
+  <div class="page-glow page-glow-one" aria-hidden="true"></div>
+  <div class="page-glow page-glow-two" aria-hidden="true"></div>
+
+  <header class="site-header" id="top">
+    <nav class="nav shell" aria-label="Primary navigation">
+      <a class="brand" href="#top" aria-label="CodeSpace home">
+        <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+          <path d="M20 3 34.7 11.5v17L20 37 5.3 28.5v-17L20 3Z"/>
+          <circle cx="20" cy="20" r="4"/>
+          <circle cx="11" cy="14" r="2.2"/>
+          <circle cx="29" cy="14" r="2.2"/>
+          <circle cx="12" cy="28" r="2.2"/>
+          <circle cx="28" cy="28" r="2.2"/>
+          <path d="m13 15 5 3m9-3-5 3m-8 8 4-4m8 4-4-4"/>
+        </svg>
+        <span>CodeSpace</span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="nav-links">
+        <span></span><span></span><span></span><span class="sr-only">Toggle navigation</span>
+      </button>
+      <div class="nav-links" id="nav-links">
+        <a href="#capabilities">Capabilities</a>
+        <a href="#workflow">Workflow</a>
+        <a href="#security">Security</a>
+        <a href="#architecture">Architecture</a>
+        <a class="nav-github" href="https://github.com/IvanChernykh/CodeSpace">GitHub <span aria-hidden="true">↗</span></a>
+      </div>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero shell">
+      <div class="hero-copy reveal">
+        <div class="eyebrow"><span class="status-dot"></span> Open source · Rust · Local first</div>
+        <h1>Give AI the code<br><span>that actually matters.</span></h1>
+        <p class="hero-lede">CodeSpace builds a live semantic graph of your repository, then returns precise, bounded context instead of dumping the whole codebase into the model.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="https://github.com/IvanChernykh/CodeSpace">View on GitHub <span aria-hidden="true">↗</span></a>
+          <a class="button button-secondary" href="#quickstart">Run locally <span aria-hidden="true">↓</span></a>
+        </div>
+        <dl class="hero-proof" aria-label="Release evidence">
+          <div><dt>Local-first</dt><dd>No cloud required</dd></div>
+          <div><dt>5 tools</dt><dd>Minimal MCP surface</dd></div>
+          <div><dt>1 binary</dt><dd>CLI · MCP · REST</dd></div>
+        </dl>
+      </div>
+
+      <div class="hero-visual reveal" data-delay="120">
+        <div class="terminal-card" aria-label="CodeSpace terminal demonstration">
+          <div class="terminal-bar">
+            <div class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+            <span>codespace — zsh</span>
+            <span class="terminal-chip">v1.0.0</span>
+          </div>
+          <div class="terminal-body" id="terminal-demo" aria-live="polite">
+            <div class="terminal-line"><span class="prompt">$</span><span class="typed-command">cse context --query "auth returns 500"</span></div>
+            <div class="terminal-output terminal-muted">Scanning semantic graph…</div>
+            <div class="terminal-output"><span class="ok">✓</span> 4 relevant symbols · 3 files · 812 tokens</div>
+            <div class="result-card">
+              <div><span class="file-badge rust">RS</span><strong>src/auth.rs</strong><span>0.97</span></div>
+              <div><span class="file-badge rust">RS</span><strong>src/middleware.rs</strong><span>0.88</span></div>
+              <div><span class="file-badge rust">RS</span><strong>src/error.rs</strong><span>0.79</span></div>
+            </div>
+            <div class="terminal-line terminal-last"><span class="prompt">$</span><span class="cursor" aria-hidden="true"></span></div>
+          </div>
+        </div>
+        <div class="floating-card floating-impact">
+          <span class="floating-icon">↗</span>
+          <div><strong>Impact radius</strong><span>12 symbols · medium risk</span></div>
+        </div>
+        <div class="floating-card floating-private">
+          <span class="floating-icon shield">◆</span>
+          <div><strong>Source stays local</strong><span>Secrets redacted before output</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="trust-strip" aria-label="Core principles">
+      <div class="shell trust-track">
+        <span>Semantic graph</span><i></i><span>Context compaction</span><i></i><span>Blast-radius analysis</span><i></i><span>Decision memory</span><i></i><span>MCP-native</span>
+      </div>
+    </section>
+
+    <section class="section shell" id="capabilities">
+      <div class="section-heading reveal">
+        <div class="eyebrow">The context layer</div>
+        <h2>One engine. Four hard problems solved.</h2>
+        <p>CodeSpace turns repository structure into an operational interface for agents, reviewers, and automation.</p>
+      </div>
+      <div class="feature-grid">
+        <article class="feature-card feature-large reveal">
+          <div class="feature-number">01</div>
+          <div class="feature-icon graph-icon" aria-hidden="true">
+            <span></span><span></span><span></span><span></span><span></span>
+          </div>
+          <h3>Semantic repository graph</h3>
+          <p>Files, symbols, imports, calls, containment, and confidence scores — persisted and updated incrementally.</p>
+          <ul class="mini-list"><li>Multi-language indexing</li><li>Deterministic storage</li><li>Incremental hashing</li></ul>
+        </article>
+        <article class="feature-card reveal" data-delay="70">
+          <div class="feature-number">02</div>
+          <div class="feature-icon context-icon" aria-hidden="true">⌁</div>
+          <h3>Compact AI context</h3>
+          <p>Lexical and graph ranking select the smallest useful source bundle under an explicit token budget.</p>
+          <div class="meter"><span style="--value: 82%"></span></div>
+          <small>Measured per repository — never hard-coded</small>
+        </article>
+        <article class="feature-card reveal" data-delay="120">
+          <div class="feature-number">03</div>
+          <div class="feature-icon impact-icon" aria-hidden="true">◎</div>
+          <h3>Change impact</h3>
+          <p>Map Git diffs onto graph nodes and traverse reverse dependencies before a commit or pull request.</p>
+          <div class="impact-pills"><span>depth 3</span><span>risk score</span><span>callers</span></div>
+        </article>
+        <article class="feature-card feature-wide reveal" data-delay="170">
+          <div class="feature-number">04</div>
+          <div class="feature-copy">
+            <h3>Engineering memory that survives the chat</h3>
+            <p>Store decisions, rationale, affected files, symbols, agents, sessions, and tags next to the repository graph.</p>
+          </div>
+          <div class="memory-timeline" aria-hidden="true">
+            <div><span></span><strong>Decision</strong><small>Keep auth middleware deterministic</small></div>
+            <div><span></span><strong>Rationale</strong><small>Stable cache keys and reproducible tests</small></div>
+            <div><span></span><strong>Scope</strong><small>auth.rs · middleware.rs</small></div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section workflow-section" id="workflow">
+      <div class="shell">
+        <div class="section-heading center reveal">
+          <div class="eyebrow">Designed for the loop</div>
+          <h2>From repository to reliable action.</h2>
+        </div>
+        <div class="workflow-grid">
+          <article class="workflow-step reveal"><span>01</span><div class="workflow-icon">⌘</div><h3>Index</h3><p>Parse structure, hash files, and persist the graph locally.</p><code>cse init</code></article>
+          <article class="workflow-step reveal" data-delay="70"><span>02</span><div class="workflow-icon">⌕</div><h3>Retrieve</h3><p>Rank files and symbols against the task and token budget.</p><code>cse context</code></article>
+          <article class="workflow-step reveal" data-delay="140"><span>03</span><div class="workflow-icon">⇄</div><h3>Change</h3><p>Let the agent edit with focused context and prior decisions.</p><code>cse history</code></article>
+          <article class="workflow-step reveal" data-delay="210"><span>04</span><div class="workflow-icon">◉</div><h3>Verify</h3><p>Calculate the blast radius before commit or review.</p><code>cse impact</code></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section shell security-section" id="security">
+      <div class="security-panel reveal">
+        <div class="security-copy">
+          <div class="eyebrow">Security by architecture</div>
+          <h2>Your source code is not telemetry.</h2>
+          <p>CodeSpace is local-first and provider-independent. It does not require embeddings, a model account, or a hosted database.</p>
+          <div class="security-list">
+            <div><span>✓</span><p><strong>Local processing</strong>No source upload path in the binary.</p></div>
+            <div><span>✓</span><p><strong>Secret redaction</strong>Credential-like values are removed before context and MCP reads.</p></div>
+            <div><span>✓</span><p><strong>Path confinement</strong>Symlinks and metadata escape paths are blocked.</p></div>
+            <div><span>✓</span><p><strong>Loopback REST</strong>Remote exposure is explicit and warned.</p></div>
+          </div>
+        </div>
+        <div class="security-visual" aria-hidden="true">
+          <div class="shield-orbit orbit-one"></div><div class="shield-orbit orbit-two"></div>
+          <svg viewBox="0 0 180 210">
+            <defs><linearGradient id="shield-gradient" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#65f6d4"/><stop offset="1" stop-color="#5f7cff"/></linearGradient></defs>
+            <path d="M90 10 160 38v57c0 49-28 85-70 105-42-20-70-56-70-105V38L90 10Z" fill="rgba(14,31,50,.9)" stroke="url(#shield-gradient)" stroke-width="3"/>
+            <path d="m59 103 20 20 43-47" fill="none" stroke="url(#shield-gradient)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <div class="security-label">LOCAL ONLY</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section shell" id="architecture">
+      <div class="section-heading reveal">
+        <div class="eyebrow">One binary, multiple surfaces</div>
+        <h2>Meet every tool where it already works.</h2>
+      </div>
+      <div class="architecture-wrap reveal">
+        <div class="architecture-core">
+          <svg class="architecture-logo" viewBox="0 0 40 40" aria-hidden="true"><path d="M20 3 34.7 11.5v17L20 37 5.3 28.5v-17L20 3Z"/><circle cx="20" cy="20" r="4"/><circle cx="11" cy="14" r="2.2"/><circle cx="29" cy="14" r="2.2"/><circle cx="12" cy="28" r="2.2"/><circle cx="28" cy="28" r="2.2"/><path d="m13 15 5 3m9-3-5 3m-8 8 4-4m8 4-4-4"/></svg>
+          <strong>CodeSpace core</strong><span>graph · ranking · security · memory</span>
+        </div>
+        <div class="architecture-lines" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+        <div class="architecture-nodes">
+          <article><span>CLI</span><strong>cse</strong><small>Fast shell workflows</small></article>
+          <article><span>MCP</span><strong>5 focused tools</strong><small>IDE and agent clients</small></article>
+          <article><span>REST</span><strong>Loopback API</strong><small>Local integrations</small></article>
+          <article><span>RUST</span><strong>Library crate</strong><small>Embed the engine</small></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section shell quickstart-section" id="quickstart">
+      <div class="quickstart-panel reveal">
+        <div class="quickstart-copy">
+          <div class="eyebrow">Start in under a minute</div>
+          <h2>Build the graph. Ask a better question.</h2>
+          <p>Requires Rust 1.85+. No external service or account required.</p>
+          <a href="https://github.com/IvanChernykh/CodeSpace#quick-start" class="text-link">Read the full quick start <span aria-hidden="true">→</span></a>
+        </div>
+        <div class="code-window">
+          <div class="code-window-bar"><span>terminal</span><button class="copy-button" data-copy="cargo install --git https://github.com/IvanChernykh/CodeSpace\ncse init\ncse context --query &quot;authentication returns 500&quot;" type="button">Copy</button></div>
+          <pre><code><span class="code-comment"># Install from source</span>
+cargo install --git https://github.com/IvanChernykh/CodeSpace
+
+<span class="code-comment"># Index and retrieve</span>
+cse init
+cse context --query <span class="code-string">"authentication returns 500"</span></code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="cta-section shell reveal">
+      <div class="cta-panel">
+        <div><div class="eyebrow">Open source · Apache-2.0</div><h2>Less context noise.<br>More confident changes.</h2></div>
+        <div class="cta-actions"><a class="button button-primary" href="https://github.com/IvanChernykh/CodeSpace">Explore the repository <span aria-hidden="true">↗</span></a><a class="button button-secondary" href="https://github.com/IvanChernykh/CodeSpace/issues">Open an issue</a></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="shell footer-grid">
+      <div><a class="brand" href="#top"><svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true"><path d="M20 3 34.7 11.5v17L20 37 5.3 28.5v-17L20 3Z"/><circle cx="20" cy="20" r="4"/><circle cx="11" cy="14" r="2.2"/><circle cx="29" cy="14" r="2.2"/><circle cx="12" cy="28" r="2.2"/><circle cx="28" cy="28" r="2.2"/><path d="m13 15 5 3m9-3-5 3m-8 8 4-4m8 4-4-4"/></svg><span>CodeSpace</span></a><p>Local-first context infrastructure for AI software development.</p></div>
+      <div><strong>Project</strong><a href="https://github.com/IvanChernykh/CodeSpace">Repository</a><a href="https://github.com/IvanChernykh/CodeSpace/releases">Releases</a><a href="https://github.com/IvanChernykh/CodeSpace/blob/main/docs/ROADMAP.md">Roadmap</a></div>
+      <div><strong>Resources</strong><a href="https://github.com/IvanChernykh/CodeSpace/blob/main/README.md">Documentation</a><a href="https://github.com/IvanChernykh/CodeSpace/blob/main/SECURITY.md">Security</a><a href="https://github.com/IvanChernykh/CodeSpace/blob/main/CONTRIBUTING.md">Contributing</a></div>
+      <div><strong>License</strong><a href="https://github.com/IvanChernykh/CodeSpace/blob/main/LICENSE">Apache-2.0</a><span>© 2026 CodeSpace contributors</span></div>
+    </div>
+  </footer>
+</body>
+</html>
