@@ -44,9 +44,9 @@ jobs:
           files="$(tar -tzf /tmp/codespace-release.tar.gz | grep -v '/$' | wc -l)"
           echo "archive_files=${files}"
           test "${files}" -eq 66
-          tar -tzf /tmp/codespace-release.tar.gz | grep -Fx './Cargo.toml'
-          tar -tzf /tmp/codespace-release.tar.gz | grep -Fx './site/index.html'
-          tar -tzf /tmp/codespace-release.tar.gz | grep -Fx './.github/workflows/ci.yml'
+          tar -tzf /tmp/codespace-release.tar.gz | grep -Fx 'Cargo.toml'
+          tar -tzf /tmp/codespace-release.tar.gz | grep -Fx 'site/index.html'
+          tar -tzf /tmp/codespace-release.tar.gz | grep -Fx '.github/workflows/ci.yml'
 
       - name: Expand final release tree
         shell: bash
