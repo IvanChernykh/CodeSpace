@@ -1,0 +1,10 @@
+{
+  "name": "CodeSpace",
+  "short_name": "CodeSpace",
+  "description": "Local-first semantic code graph and compact context engine for AI coding agents.",
+  "start_url": "/CodeSpace/",
+  "display": "standalone",
+  "background_color": "#06101d",
+  "theme_color": "#07111f",
+  "icons": [{"src":"assets/favicon.svg","sizes":"any","type":"image/svg+xml"}]
+}

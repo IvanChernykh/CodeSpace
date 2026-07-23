@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+      - name: Format
+        run: cargo +1.97.1 fmt --all -- --check
+      - name: Check
+        run: cargo +1.97.1 check --all-targets --locked
+      - name: Clippy correctness
+        run: cargo +1.97.1 clippy --all-targets --locked -- -D clippy::correctness
+      - name: Unit and integration tests
+        run: cargo +1.97.1 test --all-targets --locked
+      - name: Validate Pages site
+        run: python3 scripts/validate_site.py
+      - name: Behavioral self-test
+        run: python3 scripts/self_test.py
+      - name: Upload self-test evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: self-test-evidence
+          path: |
+            artifacts/self-test-report.json
+            artifacts/SELF_TEST.md
+            artifacts/self-context.txt
+          if-no-files-found: error
+      - name: Package verification
+        run: cargo +1.97.1 package --allow-dirty --locked
+
+  msrv:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install MSRV
+        run: rustup toolchain install 1.85.0 --profile minimal
+      - name: Check MSRV
+        run: cargo +1.85.0 check --all-targets --locked
+      - name: Test MSRV
+        run: cargo +1.85.0 test --all-targets --locked
+
+  platforms:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust
+        run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Test
+        run: cargo +1.97.1 test --all-targets --locked
