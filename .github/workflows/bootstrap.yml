@@ -1,0 +1,42 @@
+name: Bootstrap repository
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bootstrap-repository
+  cancel-in-progress: false
+
+jobs:
+  expand:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Verify and expand release tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .bootstrap/chunks/part-* | base64 --decode > /tmp/codespace-release.tar.gz
+          echo "b6257b456bcbb9d5e2751400af7dac5f4ade3d09ab6e74fa8e2c016dcb5862a5  /tmp/codespace-release.tar.gz" | sha256sum --check -
+          mkdir -p /tmp/codespace-release
+          tar -xzf /tmp/codespace-release.tar.gz -C /tmp/codespace-release
+          test "$(find /tmp/codespace-release -type f | wc -l)" -eq 66
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -a /tmp/codespace-release/. .
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "Release CodeSpace 1.0.0 with cse CLI and Pages"
+          git tag -a v1.0.0 -m "CodeSpace 1.0.0"
+          git push origin HEAD:main
+          git push origin refs/tags/v1.0.0
