@@ -1,0 +1,30 @@
+name: CI-gated finalizer
+
+on:
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+jobs:
+  merge-release-trigger:
+    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Merge only the v1.0.0 finalization pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr_number="$(jq -r '.workflow_run.pull_requests[0].number // empty' "$GITHUB_EVENT_PATH")"
+          if [[ "$pr_number" != "3" ]]; then
+            echo "Workflow run belongs to PR ${pr_number:-none}; finalizer only handles PR 3."
+            exit 0
+          fi
+          gh pr merge "$pr_number" --repo "$GITHUB_REPOSITORY" --merge --subject "[release] Finalize CodeSpace 1.0.0 delivery" --body "CI matrix passed. Trigger GitHub Pages deployment and reproducible v1.0.0 release publication."
