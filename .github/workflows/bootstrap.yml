@@ -1,8 +1,6 @@
 name: Bootstrap repository
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
@@ -25,22 +23,55 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-      - name: Verify and expand release tree
+
+      - name: Assemble and verify payload
         shell: bash
         run: |
           set -euo pipefail
-          cat .bootstrap/chunks/part-* | base64 --decode > /tmp/codespace-release.tar.gz
-          echo "b6257b456bcbb9d5e2751400af7dac5f4ade3d09ab6e74fa8e2c016dcb5862a5  /tmp/codespace-release.tar.gz" | sha256sum --check -
+          cat .bootstrap/chunks/part-* > /tmp/codespace-release.b64
+          base64 --decode /tmp/codespace-release.b64 > /tmp/codespace-release.tar.gz
+          actual="$(sha256sum /tmp/codespace-release.tar.gz | cut -d' ' -f1)"
+          echo "payload_sha256=${actual}"
+          test "${actual}" = "b6257b456bcbb9d5e2751400af7dac5f4ade3d09ab6e74fa8e2c016dcb5862a5"
+          files="$(tar -tzf /tmp/codespace-release.tar.gz | grep -v '/$' | wc -l)"
+          echo "archive_files=${files}"
+          test "${files}" -eq 66
+
+      - name: Expand code and site while preserving bootstrap workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp .github/workflows/bootstrap.yml /tmp/bootstrap.yml
+          rm -rf /tmp/codespace-release
           mkdir -p /tmp/codespace-release
           tar -xzf /tmp/codespace-release.tar.gz -C /tmp/codespace-release
-          test "$(find /tmp/codespace-release -type f | wc -l)" -eq 66
+          rm -rf /tmp/codespace-release/.github/workflows
+          mkdir -p /tmp/codespace-release/.github/workflows
+          cp /tmp/bootstrap.yml /tmp/codespace-release/.github/workflows/bootstrap.yml
           find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
           cp -a /tmp/codespace-release/. .
+          test -f Cargo.toml
+          test -f site/index.html
+          test -f .github/workflows/bootstrap.yml
+          test ! -e .bootstrap
+
+      - name: Commit exact code and site tree
+        shell: bash
+        run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git diff --cached --quiet && exit 0
+          git diff --cached --stat
+          test -n "$(git diff --cached --name-only)"
+          git diff --cached --name-only | grep -Ev '^\.github/workflows/' >/dev/null
+          test -z "$(git diff --cached --name-only | grep '^\.github/workflows/' || true)"
           git commit -m "Release CodeSpace 1.0.0 with cse CLI and Pages"
-          git tag -a v1.0.0 -m "CodeSpace 1.0.0"
+
+      - name: Push final main and tag
+        shell: bash
+        run: |
+          set -euo pipefail
           git push origin HEAD:main
+          git tag -a v1.0.0 -m "CodeSpace 1.0.0"
           git push origin refs/tags/v1.0.0
