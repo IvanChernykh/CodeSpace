@@ -1,11 +1,13 @@
 #![forbid(unsafe_code)]
 
+pub mod ai;
 pub mod application;
 pub mod cli;
 pub mod context;
 pub mod dashboard;
 pub mod events;
 pub mod export;
+pub mod github_integration;
 pub mod impact;
 pub mod indexer;
 pub mod mcp;
@@ -20,6 +22,7 @@ pub mod server;
 pub mod settings;
 pub mod skills;
 pub mod storage;
+pub mod tasks;
 pub mod util;
 pub mod workspace;
 

@@ -221,6 +221,72 @@ fn call_tool(root: &Path, graph: &GraphIndex, name: &str, input: &str) -> Result
             let max_lines = extract_json_number(input, "max_lines").unwrap_or(400).clamp(1, 5_000) as usize;
             safe_read(root, &file, max_lines)
         }
+        "cse_chat" => {
+            let query = required_json_string(input, "query")?;
+            let model = extract_json_string(input, "model");
+            let mut session = crate::ai::ChatSession::new(model.as_deref());
+            let context = match extract_json_string(input, "context") {
+                Some(ctx) if !ctx.is_empty() => Some(ctx),
+                _ => {
+                    let bundle = build_context(root, graph, &query, &ContextOptions { max_tokens: 2000, ..Default::default() })?;
+                    let mut parts = Vec::new();
+                    for item in &bundle.items {
+                        parts.push(format!("// {} ({}:{})\n{}", item.symbol, item.path, item.line_start, item.content));
+                    }
+                    if parts.is_empty() { None } else { Some(parts.join("\n\n")) }
+                }
+            };
+            let response = crate::ai::chat(&mut session, &query, context.as_deref())?;
+            Ok(response)
+        }
+        "cse_task_add" => {
+            let title = required_json_string(input, "title")?;
+            let description = extract_json_string(input, "description").unwrap_or_default();
+            let priority = extract_json_string(input, "priority")
+                .and_then(|p| crate::tasks::TaskPriority::parse(&p))
+                .unwrap_or(crate::tasks::TaskPriority::Medium);
+            let due = extract_json_number(input, "due").map(|v| v as u128);
+            let tags: Vec<String> = extract_json_string(input, "tags")
+                .map(|t| t.split(',').map(String::from).collect())
+                .unwrap_or_default();
+            let mut board = crate::tasks::load_tasks(root);
+            let task = board.add(&title, &description, priority, due, tags);
+            let task_id = task.id.clone();
+            let task_title = task.title.clone();
+            crate::tasks::save_tasks(root, &board)?;
+            Ok(format!("Created task: {task_id} - {task_title}"))
+        }
+        "cse_task_list" => {
+            let board = crate::tasks::load_tasks(root);
+            Ok(board.to_json())
+        }
+        "cse_task_remove" => {
+            let id = required_json_string(input, "id")?;
+            let mut board = crate::tasks::load_tasks(root);
+            board.remove(&id)?;
+            crate::tasks::save_tasks(root, &board)?;
+            Ok(format!("Removed task: {id}"))
+        }
+        "cse_task_status" => {
+            let id = required_json_string(input, "id")?;
+            let status_str = required_json_string(input, "status")?;
+            let status = crate::tasks::TaskStatus::parse(&status_str)
+                .ok_or_else(|| Error::InvalidArgument(format!("invalid status: {status_str}")))?;
+            let mut board = crate::tasks::load_tasks(root);
+            board.set_status(&id, status)?;
+            crate::tasks::save_tasks(root, &board)?;
+            Ok(format!("Updated task {id} -> {}", status.as_str()))
+        }
+        "cse_github_status" => {
+            let config = crate::github_integration::status(root);
+            Ok(config.to_json())
+        }
+        "cse_github_issues" => {
+            let state = extract_json_string(input, "state").unwrap_or_else(|| "open".to_string());
+            let owner = extract_json_string(input, "owner");
+            let repo = extract_json_string(input, "repo");
+            crate::github_integration::list_issues(root, owner.as_deref(), repo.as_deref(), &state)
+        }
         _ => Err(Error::InvalidArgument(format!("unknown tool: {name}"))),
     }
 }
@@ -266,7 +332,14 @@ fn tools_list_json() -> String {
 {"name":"cse_context","description":"Return a ranked, token-budgeted, secret-redacted code context bundle.","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"max_tokens":{"type":"integer","minimum":128,"maximum":32000},"max_items":{"type":"integer","minimum":1,"maximum":50}},"required":["query"],"additionalProperties":false}},
 {"name":"cse_impact","description":"Analyze the transitive blast radius between two Git refs.","inputSchema":{"type":"object","properties":{"from":{"type":"string"},"to":{"type":"string"},"depth":{"type":"integer","minimum":1,"maximum":10}},"additionalProperties":false}},
 {"name":"cse_history","description":"Read prior engineering decisions by file, symbol, tag, or summary.","inputSchema":{"type":"object","properties":{"target":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false}},
-{"name":"cse_read","description":"Read a project file with path confinement, line limits, and secret redaction.","inputSchema":{"type":"object","properties":{"file":{"type":"string"},"max_lines":{"type":"integer","minimum":1,"maximum":5000}},"required":["file"],"additionalProperties":false}}
+{"name":"cse_read","description":"Read a project file with path confinement, line limits, and secret redaction.","inputSchema":{"type":"object","properties":{"file":{"type":"string"},"max_lines":{"type":"integer","minimum":1,"maximum":5000}},"required":["file"],"additionalProperties":false}},
+{"name":"cse_chat","description":"Chat with local AI (Ollama) about code. Auto-detects RU/EN. Uses project context automatically.","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"model":{"type":"string"},"context":{"type":"string"}},"required":["query"],"additionalProperties":false}},
+{"name":"cse_task_add","description":"Add a project task with priority, due date, and tags.","inputSchema":{"type":"object","properties":{"title":{"type":"string"},"description":{"type":"string"},"priority":{"type":"string","enum":["low","medium","high","critical"]},"due":{"type":"integer"},"tags":{"type":"string"}},"required":["title"],"additionalProperties":false}},
+{"name":"cse_task_list","description":"List all project tasks as JSON.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}},
+{"name":"cse_task_remove","description":"Remove a task by ID.","inputSchema":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"],"additionalProperties":false}},
+{"name":"cse_task_status","description":"Update task status.","inputSchema":{"type":"object","properties":{"id":{"type":"string"},"status":{"type":"string","enum":["todo","in_progress","done","cancelled"]}},"required":["id","status"],"additionalProperties":false}},
+{"name":"cse_github_status","description":"Check GitHub integration link status.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}},
+{"name":"cse_github_issues","description":"List GitHub issues for a repository.","inputSchema":{"type":"object","properties":{"state":{"type":"string","enum":["open","closed","all"]},"owner":{"type":"string"},"repo":{"type":"string"}},"additionalProperties":false}}
 ]}"#.replace('\n', "")
 }
 

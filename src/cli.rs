@@ -41,6 +41,9 @@ where
         "settings" => command_settings(&parsed),
         "read" => command_read(&parsed),
         "graph" => command_graph(&parsed),
+        "chat" | "ai" => command_chat(&parsed),
+        "task" | "tasks" => command_task(&parsed),
+        "github" | "gh" => command_github(&parsed),
         "help" | "--help" | "-h" => {
             print_help();
             Ok(0)
@@ -613,6 +616,19 @@ fn option_expects_value(key: &str) -> bool {
             | "name"
             | "scope"
             | "max-lines"
+            | "title"
+            | "description"
+            | "priority"
+            | "due"
+            | "id"
+            | "status"
+            | "model"
+            | "token"
+            | "username"
+            | "owner"
+            | "repo"
+            | "body"
+            | "state"
     )
 }
 
@@ -894,10 +910,205 @@ fn command_graph(args: &ParsedArgs) -> Result<i32> {
     Ok(0)
 }
 
+fn command_chat(args: &ParsedArgs) -> Result<i32> {
+    let root = root_from_args(args)?;
+    let model = args.value("model").map(String::as_str);
+
+    if args.flag("models") {
+        let models = crate::ai::list_models()?;
+        if models.is_empty() {
+            println!("No Ollama models found. Run: ollama pull qwen2.5-coder:1.5b-instruct-q4_K_M");
+        } else {
+            println!("Available Ollama models:");
+            for m in &models {
+                println!("  {m}");
+            }
+        }
+        return Ok(0);
+    }
+
+    if let Some(query) = args.value("query") {
+        let mut session = crate::ai::ChatSession::new(model);
+        let context = None;
+        let response = crate::ai::chat(&mut session, query, context)?;
+        println!("{response}");
+        return Ok(0);
+    }
+
+    crate::ai::interactive_chat(&root, model)
+}
+
+fn command_task(args: &ParsedArgs) -> Result<i32> {
+    let root = root_from_args(args)?;
+    let sub = args.positionals.first().map(String::as_str).unwrap_or("list");
+    let mut board = crate::tasks::load_tasks(&root);
+
+    match sub {
+        "list" | "ls" => {
+            if board.tasks.is_empty() {
+                println!("No tasks. Add one with: cse task add --title \"My task\"");
+                return Ok(0);
+            }
+            let format = args.value("format").map(String::as_str).unwrap_or("plain");
+            if format == "json" {
+                println!("{}", board.to_json());
+            } else {
+                println!("{:<20} {:<12} {:<10} {:<40}", "ID", "STATUS", "PRIORITY", "TITLE");
+                println!("{}", "-".repeat(82));
+                for task in board.list() {
+                    println!(
+                        "{:<20} {:<12} {:<10} {:<40}",
+                        task.id,
+                        task.status.as_str(),
+                        task.priority.as_str(),
+                        task.title
+                    );
+                }
+            }
+        }
+        "add" | "new" | "create" => {
+            let title = args.value("title")
+                .ok_or_else(|| Error::InvalidArgument("--title required".to_string()))?;
+            let description = args.value("description").map(String::as_str).unwrap_or("");
+            let priority = args.value("priority")
+                .and_then(|p| crate::tasks::TaskPriority::parse(p))
+                .unwrap_or(crate::tasks::TaskPriority::Medium);
+            let due = args.value("due").and_then(|d| d.parse::<u128>().ok());
+            let tags: Vec<String> = args.value("tags")
+                .map(|t| t.split(',').map(String::from).collect())
+                .unwrap_or_default();
+            let task = board.add(title, description, priority, due, tags);
+            let task_id = task.id.clone();
+            let task_title = task.title.clone();
+            crate::tasks::save_tasks(&root, &board)?;
+            println!("Created task: {task_id} - {task_title}");
+        }
+        "remove" | "rm" | "delete" => {
+            let id = args.value("id")
+                .or_else(|| args.positionals.get(1))
+                .ok_or_else(|| Error::InvalidArgument("task id required".to_string()))?;
+            board.remove(id)?;
+            crate::tasks::save_tasks(&root, &board)?;
+            println!("Removed task: {id}");
+        }
+        "status" => {
+            let id = args.value("id")
+                .or_else(|| args.positionals.get(1))
+                .ok_or_else(|| Error::InvalidArgument("task id required".to_string()))?;
+            let status = args.value("status")
+                .or_else(|| args.positionals.get(2))
+                .ok_or_else(|| Error::InvalidArgument("status required (todo|in_progress|done|cancelled)".to_string()))?;
+            let status = crate::tasks::TaskStatus::parse(status)
+                .ok_or_else(|| Error::InvalidArgument(format!("invalid status: {status}")))?;
+            board.set_status(id, status)?;
+            crate::tasks::save_tasks(&root, &board)?;
+            println!("Updated task {id} -> {status:?}");
+        }
+        "priority" => {
+            let id = args.value("id")
+                .or_else(|| args.positionals.get(1))
+                .ok_or_else(|| Error::InvalidArgument("task id required".to_string()))?;
+            let priority = args.value("priority")
+                .or_else(|| args.positionals.get(2))
+                .ok_or_else(|| Error::InvalidArgument("priority required (low|medium|high|critical)".to_string()))?;
+            let priority = crate::tasks::TaskPriority::parse(priority)
+                .ok_or_else(|| Error::InvalidArgument(format!("invalid priority: {priority}")))?;
+            board.set_priority(id, priority)?;
+            crate::tasks::save_tasks(&root, &board)?;
+            println!("Updated task {id} priority -> {priority:?}");
+        }
+        "upcoming" => {
+            let tasks = board.list_upcoming();
+            if tasks.is_empty() {
+                println!("No upcoming tasks.");
+            } else {
+                println!("Upcoming tasks:");
+                for task in tasks {
+                    let due_str = task.due_unix_ms
+                        .map(|d| format!(" (due: {d})"))
+                        .unwrap_or_default();
+                    println!("  [{}] {}{} - {}", task.priority.as_str(), task.id, due_str, task.title);
+                }
+            }
+        }
+        other => return Err(Error::InvalidArgument(format!("unknown task subcommand: {other}"))),
+    }
+    Ok(0)
+}
+
+fn command_github(args: &ParsedArgs) -> Result<i32> {
+    let root = root_from_args(args)?;
+    let sub = args.positionals.first().map(String::as_str).unwrap_or("status");
+
+    match sub {
+        "status" => {
+            let config = crate::github_integration::status(&root);
+            if config.is_configured() {
+                println!("GitHub: linked as @{}", config.username);
+                if !config.default_owner.is_empty() {
+                    println!("Default repo: {}/{}", config.default_owner, config.default_repo);
+                }
+            } else {
+                println!("GitHub: not linked");
+                println!("Run: cse github link --token <token> --username <username>");
+            }
+        }
+        "link" => {
+            let token = args.value("token")
+                .ok_or_else(|| Error::InvalidArgument("--token required".to_string()))?;
+            let username = args.value("username")
+                .ok_or_else(|| Error::InvalidArgument("--username required".to_string()))?;
+            let config = crate::github_integration::link(&root, token, username)?;
+            println!("GitHub linked as @{}", config.username);
+        }
+        "unlink" => {
+            crate::github_integration::unlink(&root)?;
+            println!("GitHub unlinked.");
+        }
+        "repos" => {
+            let response = crate::github_integration::list_repos(&root)?;
+            write_output(args, &response)?;
+        }
+        "issues" => {
+            let state = args.value("state").map(String::as_str).unwrap_or("open");
+            let owner = args.value("owner").map(String::as_str);
+            let repo = args.value("repo").map(String::as_str);
+            let response = crate::github_integration::list_issues(&root, owner, repo, state)?;
+            write_output(args, &response)?;
+        }
+        "prs" | "pulls" => {
+            let state = args.value("state").map(String::as_str).unwrap_or("open");
+            let owner = args.value("owner").map(String::as_str);
+            let repo = args.value("repo").map(String::as_str);
+            let response = crate::github_integration::list_prs(&root, owner, repo, state)?;
+            write_output(args, &response)?;
+        }
+        "create-issue" => {
+            let title = args.value("title")
+                .ok_or_else(|| Error::InvalidArgument("--title required".to_string()))?;
+            let body = args.value("body").map(String::as_str).unwrap_or("");
+            let owner = args.value("owner").map(String::as_str);
+            let repo = args.value("repo").map(String::as_str);
+            let response = crate::github_integration::create_issue(&root, title, body, owner, repo)?;
+            write_output(args, &response)?;
+        }
+        "set-repo" => {
+            let owner = args.value("owner")
+                .ok_or_else(|| Error::InvalidArgument("--owner required".to_string()))?;
+            let repo = args.value("repo")
+                .ok_or_else(|| Error::InvalidArgument("--repo required".to_string()))?;
+            crate::github_integration::set_default_repo(&root, owner, repo)?;
+            println!("Default repo set: {owner}/{repo}");
+        }
+        other => return Err(Error::InvalidArgument(format!("unknown github subcommand: {other}"))),
+    }
+    Ok(0)
+}
+
 fn print_help() {
     println!(
         r#"CodeSpace {VERSION}
-Local-first advanced IDE assistant with semantic graph, dashboard, MCP, and skills.
+Local-first SMART AI development assistant with semantic graph, dashboard, MCP, skills, and local LLM.
 
 USAGE
   cse <command> [options]
@@ -912,6 +1123,30 @@ CORE COMMANDS
   cse remember --summary <text> [--file path] [--symbol name] [--rationale text]
   cse read <file> [--max-lines 400]
   cse graph [--format json|summary]
+
+AI CHAT COMMANDS (local LLM via Ollama)
+  cse chat                          Interactive AI chat (RU/EN auto-detect)
+  cse chat --query <text>           One-shot AI query
+  cse chat --models                 List available Ollama models
+  cse chat --model <name>           Use specific model
+
+TASK COMMANDS (project task management with calendar)
+  cse task list [--format json]     List all tasks
+  cse task add --title <text> [--description <text>] [--priority low|medium|high|critical] [--due <unix_ms>] [--tags a,b,c]
+  cse task remove --id <task-id>    Remove a task
+  cse task status --id <task-id> --status <todo|in_progress|done|cancelled>
+  cse task priority --id <task-id> --priority <low|medium|high|critical>
+  cse task upcoming                 Show upcoming tasks
+
+GITHUB COMMANDS
+  cse github status                 Show GitHub link status
+  cse github link --token <token> --username <user>
+  cse github unlink                 Remove GitHub link
+  cse github repos                  List your repositories
+  cse github issues [--state open|closed] [--owner <o>] [--repo <r>]
+  cse github prs [--state open|closed] [--owner <o>] [--repo <r>]
+  cse github create-issue --title <text> [--body <text>] [--owner <o>] [--repo <r>]
+  cse github set-repo --owner <o> --repo <r>
 
 SERVER COMMANDS
   cse serve --mcp
@@ -946,6 +1181,7 @@ SECURITY DEFAULTS
   Symlinks are ignored. Files over 1 MiB and common generated/vendor directories are skipped.
   REST binds to loopback; remote binding requires --allow-remote.
   Dashboard server binds to localhost only with session token protection.
+  AI chat uses local Ollama (127.0.0.1:11434) — no data leaves your machine.
 "#
     );
 }
