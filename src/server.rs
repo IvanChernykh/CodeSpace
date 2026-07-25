@@ -1,5 +1,5 @@
 use crate::application::{ActionContext, ActionParams, ActionRegistry, OutputFormat};
-use crate::events::Event;
+use crate::events::{Event, EventType};
 use crate::model::{Error, GraphIndex, Result};
 use crate::storage;
 use crate::util::json_escape;
@@ -66,18 +66,47 @@ fn generate_token() -> String {
 }
 
 #[derive(Debug, Clone)]
+pub struct EventLog {
+    next_id: u64,
+    events: std::collections::VecDeque<(u64, String)>,
+}
+
+impl EventLog {
+    fn new() -> Self {
+        Self { next_id: 1, events: std::collections::VecDeque::new() }
+    }
+
+    pub fn publish(&mut self, event: &Event) {
+        let id = self.next_id;
+        self.next_id += 1;
+        self.events.push_back((id, event.to_json()));
+        while self.events.len() > 200 {
+            self.events.pop_front();
+        }
+    }
+
+    fn since(&self, last_id: u64) -> Vec<(u64, String)> {
+        self.events.iter().filter(|(id, _)| *id > last_id).cloned().collect()
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct ServerState {
     pub config: ServerConfig,
     pub started_unix_ms: u128,
     pub workspaces: WorkspaceRegistry,
+    pub events: EventLog,
 }
 
 impl ServerState {
     pub fn new(config: ServerConfig) -> Self {
+        let mut events = EventLog::new();
+        events.publish(&Event::new(EventType::ServerStarted, "", 0));
         Self {
             config,
             started_unix_ms: crate::util::now_unix_ms(),
             workspaces: load_global_registry(),
+            events,
         }
     }
 }
@@ -192,15 +221,23 @@ fn handle_connection(
     let (path, query) = target.split_once('?').unwrap_or((target, ""));
     let params = parse_query(query);
 
-    let is_authorized = check_authorization(&request, state);
-    let is_public = path == "/api/v1/health" || path == "/api/v1/bootstrap" || path == "/";
+    let is_authorized = check_authorization(&request, &params, state);
+    let is_public = path == "/api/v1/health"
+        || path == "/api/v1/bootstrap"
+        || path == "/"
+        || path == "/dashboard"
+        || path.starts_with("/assets/");
 
     if !is_authorized && !is_public {
         return write_json_response(&mut stream, 401, "{\"error\":\"unauthorized\"}");
     }
 
     match (method, path) {
-        ("GET", "/") | ("GET", "/dashboard") => serve_dashboard(&mut stream),
+        ("GET", "/") | ("GET", "/dashboard") => serve_dashboard(&mut stream, state),
+        ("GET", path) if path.starts_with("/assets/") => match crate::dashboard::asset(path) {
+            Some((content_type, body)) => write_asset_response(&mut stream, content_type, &body),
+            None => write_json_response(&mut stream, 404, "{\"error\":\"asset not found\"}"),
+        },
         ("GET", "/api/v1/health") => {
             let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
             let body = format!(
@@ -290,6 +327,58 @@ fn handle_connection(
                 Err(error) => write_json_response(&mut stream, 500, &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string()))),
             }
         }
+        ("GET", "/api/v1/impact") => {
+            let graph = load_graph(root)?;
+            let ctx = ActionContext {
+                root: root.as_path().to_path_buf(),
+                graph,
+                format: OutputFormat::Json,
+            };
+            let mut action_params = ActionParams::default();
+            for key in ["from", "to", "depth"] {
+                if let Some(v) = params.get(key) {
+                    action_params.flags.insert(key.to_string(), v.clone());
+                }
+            }
+            match registry.execute("impact", &ctx, &action_params) {
+                Ok(result) => write_json_response(&mut stream, 200, &result.stdout),
+                Err(error) => write_json_response(&mut stream, 500, &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string()))),
+            }
+        }
+        ("GET", "/api/v1/history") => {
+            let graph = load_graph(root)?;
+            let ctx = ActionContext {
+                root: root.as_path().to_path_buf(),
+                graph,
+                format: OutputFormat::Json,
+            };
+            let mut action_params = ActionParams::default();
+            action_params.positional.push(params.get("q").cloned().unwrap_or_default());
+            if let Some(v) = params.get("limit") {
+                action_params.flags.insert("limit".to_string(), v.clone());
+            }
+            match registry.execute("history", &ctx, &action_params) {
+                Ok(result) => write_json_response(&mut stream, 200, &result.stdout),
+                Err(error) => write_json_response(&mut stream, 500, &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string()))),
+            }
+        }
+        ("GET", "/api/v1/read") => {
+            let graph = load_graph(root)?;
+            let ctx = ActionContext {
+                root: root.as_path().to_path_buf(),
+                graph,
+                format: OutputFormat::Json,
+            };
+            let mut action_params = ActionParams::default();
+            action_params.positional.push(params.get("file").cloned().unwrap_or_default());
+            if let Some(v) = params.get("max_lines") {
+                action_params.flags.insert("max-lines".to_string(), v.clone());
+            }
+            match registry.execute("read", &ctx, &action_params) {
+                Ok(result) => write_json_response(&mut stream, 200, &format!("{{\"content\":\"{}\"}}", json_escape(&result.stdout))),
+                Err(error) => write_json_response(&mut stream, 400, &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string()))),
+            }
+        }
         ("GET", "/api/v1/stats") => {
             let graph = load_graph(root)?;
             let ctx = ActionContext {
@@ -317,6 +406,11 @@ fn handle_connection(
                 Ok(ws) => {
                     let (id, name, path) = (ws.id.clone(), ws.name.clone(), ws.path.clone());
                     let _ = crate::workspace::save_global_registry(&state_guard.workspaces);
+                    state_guard.events.publish(
+                        &Event::new(EventType::WorkspaceRegistered, &id, 0)
+                            .with_data("name", &name)
+                            .with_data("path", &path),
+                    );
                     let body = format!(
                         "{{\"id\":\"{}\",\"name\":\"{}\",\"path\":\"{}\"}}",
                         json_escape(&id), json_escape(&name), json_escape(&path)
@@ -335,13 +429,94 @@ fn handle_connection(
             match state_guard.workspaces.select(id) {
                 Ok(()) => {
                     let _ = crate::workspace::save_global_registry(&state_guard.workspaces);
+                    state_guard.events.publish(&Event::new(EventType::WorkspaceSelected, id, 0));
                     write_json_response(&mut stream, 200, "{\"status\":\"selected\"}")
                 }
                 Err(error) => write_json_response(&mut stream, 400, &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string()))),
             }
         }
+        ("POST", "/api/v1/workspaces/remove") => {
+            let id = params.get("id").map_or("", String::as_str);
+            if id.is_empty() {
+                return write_json_response(&mut stream, 400, "{\"error\":\"missing id parameter\"}");
+            }
+            let mut state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
+            match state_guard.workspaces.remove(id) {
+                Ok(()) => {
+                    let _ = crate::workspace::save_global_registry(&state_guard.workspaces);
+                    state_guard.events.publish(&Event::new(EventType::WorkspaceRemoved, id, 0));
+                    write_json_response(&mut stream, 200, "{\"status\":\"removed\"}")
+                }
+                Err(error) => write_json_response(&mut stream, 400, &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string()))),
+            }
+        }
+        ("POST", "/api/v1/remember") => {
+            let graph = load_graph(root)?;
+            let ctx = ActionContext {
+                root: root.as_path().to_path_buf(),
+                graph,
+                format: OutputFormat::Json,
+            };
+            let mut action_params = ActionParams::default();
+            for key in ["file", "symbol", "summary", "rationale", "session", "agent", "tags"] {
+                if let Some(v) = params.get(key) {
+                    action_params.flags.insert(key.to_string(), v.clone());
+                }
+            }
+            match registry.execute("remember", &ctx, &action_params) {
+                Ok(result) => {
+                    let mut state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
+                    state_guard.events.publish(&Event::new(EventType::DecisionAdded, "", result.state_version));
+                    write_json_response(&mut stream, 200, &format!("{{\"message\":\"{}\"}}", json_escape(&result.stdout)))
+                }
+                Err(error) => write_json_response(&mut stream, 400, &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string()))),
+            }
+        }
+        ("POST", "/api/v1/update") => {
+            let graph = load_graph(root)?;
+            let ctx = ActionContext {
+                root: root.as_path().to_path_buf(),
+                graph,
+                format: OutputFormat::Json,
+            };
+            let mut action_params = ActionParams::default();
+            if params.get("force").is_some() {
+                action_params.flags.insert("force".to_string(), "true".to_string());
+            }
+            match registry.execute("update", &ctx, &action_params) {
+                Ok(result) => {
+                    let mut state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
+                    state_guard.events.publish(&Event::new(EventType::IndexUpdated, "", result.state_version));
+                    write_json_response(&mut stream, 200, &result.stdout)
+                }
+                Err(error) => write_json_response(&mut stream, 500, &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string()))),
+            }
+        }
+        ("POST", "/api/v1/doctor") => {
+            let graph = load_graph(root)?;
+            let ctx = ActionContext {
+                root: root.as_path().to_path_buf(),
+                graph,
+                format: OutputFormat::Json,
+            };
+            let mut action_params = ActionParams::default();
+            if params.get("repair").is_some() {
+                action_params.flags.insert("repair".to_string(), "true".to_string());
+            }
+            match registry.execute("doctor", &ctx, &action_params) {
+                Ok(result) => {
+                    let lines: Vec<String> = result.stdout.lines().map(|l| format!("\"{}\"", json_escape(l))).collect();
+                    write_json_response(&mut stream, 200, &format!("{{\"messages\":[{}]}}", lines.join(",")))
+                }
+                Err(error) => write_json_response(&mut stream, 500, &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string()))),
+            }
+        }
         ("GET", "/api/v1/dashboard") => {
-            let html = crate::dashboard::render_dashboard();
+            let token = {
+                let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
+                state_guard.config.bootstrap_token.clone()
+            };
+            let html = crate::dashboard::render_dashboard(&token);
             write_html_response(&mut stream, 200, &html)
         }
         ("GET", "/api/v1/events") => {
@@ -350,9 +525,13 @@ fn handle_connection(
         ("POST", "/api/v1/actions") => {
             let body = extract_body(&request);
             let action_name = extract_json_string(&body, "action").unwrap_or_default();
-            let action_input = extract_json_string(&body, "input").unwrap_or_default();
             if action_name.is_empty() {
                 return write_json_response(&mut stream, 400, "{\"error\":\"missing action name\"}");
+            }
+            let action_input = extract_json_object(&body, "input").unwrap_or_default();
+            let mut action_params = parse_action_params(&action_input);
+            if let Some(query) = action_params.get("query").map(str::to_string) {
+                action_params.positional.push(query);
             }
             let graph = load_graph(root)?;
             let ctx = ActionContext {
@@ -360,7 +539,6 @@ fn handle_connection(
                 graph,
                 format: OutputFormat::Json,
             };
-            let action_params = parse_action_params(&action_input);
             match registry.execute(&action_name, &ctx, &action_params) {
                 Ok(result) => {
                     let response_body = format!(
@@ -389,7 +567,7 @@ fn is_localhost_request(peer: Option<std::net::SocketAddr>) -> bool {
     }
 }
 
-fn check_authorization(request: &str, state: &Arc<Mutex<ServerState>>) -> bool {
+fn check_authorization(request: &str, params: &BTreeMap<String, String>, state: &Arc<Mutex<ServerState>>) -> bool {
     let expected_token = {
         let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
         state_guard.config.bootstrap_token.clone()
@@ -402,8 +580,13 @@ fn check_authorization(request: &str, state: &Arc<Mutex<ServerState>>) -> bool {
     }) {
         let token = auth_line.split(':').nth(1).unwrap_or("").trim();
         if let Some(provided) = token.strip_prefix("Bearer ") {
-            return constant_time_eq(provided.as_bytes(), expected_token.as_bytes());
+            if constant_time_eq(provided.as_bytes(), expected_token.as_bytes()) {
+                return true;
+            }
         }
+    }
+    if let Some(provided) = params.get("token") {
+        return constant_time_eq(provided.as_bytes(), expected_token.as_bytes());
     }
     false
 }
@@ -423,25 +606,49 @@ fn load_graph(root: &Path) -> Result<GraphIndex> {
     storage::load(root)
 }
 
-fn serve_dashboard(stream: &mut TcpStream) -> Result<()> {
-    let html = crate::dashboard::render_dashboard();
+fn serve_dashboard(stream: &mut TcpStream, state: &Arc<Mutex<ServerState>>) -> Result<()> {
+    let token = {
+        let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
+        state_guard.config.bootstrap_token.clone()
+    };
+    let html = crate::dashboard::render_dashboard(&token);
     write_html_response(stream, 200, &html)
 }
 
-fn handle_event_stream(stream: &mut TcpStream, _state: &Arc<Mutex<ServerState>>) -> Result<()> {
-    let headers = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\nConnection: keep-alive\r\nAccess-Control-Allow-Origin: http://localhost\r\n\r\n"
-    );
+fn handle_event_stream(stream: &mut TcpStream, state: &Arc<Mutex<ServerState>>) -> Result<()> {
+    let headers = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream; charset=utf-8\r\nCache-Control: no-store\r\nConnection: keep-alive\r\nX-Accel-Buffering: no\r\nAccess-Control-Allow-Origin: http://localhost\r\n\r\n";
     stream.write_all(headers.as_bytes())?;
     stream.flush()?;
-    let hello = format!("data: {}\n\n", Event::new(
-        crate::events::EventType::ServerStarted,
-        "",
-        0,
-    ).to_json());
-    stream.write_all(hello.as_bytes())?;
-    stream.flush()?;
-    Ok(())
+    let mut last_id = 0_u64;
+    let mut idle_ticks = 0_u32;
+    loop {
+        let batch = {
+            let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
+            state_guard.events.since(last_id)
+        };
+        if batch.is_empty() {
+            idle_ticks += 1;
+            if idle_ticks >= 50 {
+                idle_ticks = 0;
+                if stream.write_all(b": ping\n\n").is_err() || stream.flush().is_err() {
+                    return Ok(());
+                }
+            }
+            thread::sleep(Duration::from_millis(300));
+            continue;
+        }
+        idle_ticks = 0;
+        for (id, json) in batch {
+            last_id = id;
+            let chunk = format!("id: {id}\ndata: {json}\n\n");
+            if stream.write_all(chunk.as_bytes()).is_err() {
+                return Ok(());
+            }
+        }
+        if stream.flush().is_err() {
+            return Ok(());
+        }
+    }
 }
 
 fn parse_query(query: &str) -> BTreeMap<String, String> {
@@ -513,6 +720,43 @@ fn extract_json_string(input: &str, key: &str) -> Option<String> {
         end += 1;
     }
     Some(trimmed[start..end].to_string())
+}
+
+fn extract_json_object(input: &str, key: &str) -> Option<String> {
+    let needle = format!("\"{key}\"");
+    let pos = input.find(&needle)?;
+    let after = &input[pos + needle.len()..];
+    let colon = after.find(':')?;
+    let rest = &after[colon + 1..];
+    let leading_ws = rest.len() - rest.trim_start().len();
+    let bytes = rest.as_bytes();
+    let mut idx = leading_ws;
+    if bytes.get(idx) != Some(&b'{') {
+        return None;
+    }
+    let start = idx;
+    let mut depth = 0_i32;
+    while idx < bytes.len() {
+        match bytes[idx] {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(rest[start..=idx].to_string());
+                }
+            }
+            b'"' => {
+                idx += 1;
+                while idx < bytes.len() && bytes[idx] != b'"' {
+                    if bytes[idx] == b'\\' { idx += 1; }
+                    idx += 1;
+                }
+            }
+            _ => {}
+        }
+        idx += 1;
+    }
+    None
 }
 
 fn parse_action_params(input: &str) -> ActionParams {
@@ -622,6 +866,14 @@ fn write_html_response(stream: &mut TcpStream, status: u16, body: &str) -> Resul
     };
     let response = format!(
         "HTTP/1.1 {status} {reason}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nCache-Control: no-store\r\nAccess-Control-Allow-Origin: http://localhost\r\n\r\n{body}",
+        body.len()
+    );
+    stream.write_all(response.as_bytes()).map_err(Error::Io)
+}
+
+fn write_asset_response(stream: &mut TcpStream, content_type: &str, body: &str) -> Result<()> {
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nCache-Control: no-cache\r\nAccess-Control-Allow-Origin: http://localhost\r\n\r\n{body}",
         body.len()
     );
     stream.write_all(response.as_bytes()).map_err(Error::Io)
