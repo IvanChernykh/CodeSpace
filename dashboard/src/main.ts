@@ -19,7 +19,7 @@ declare global {
   }
 }
 
-const TABS: TabId[] = ["graph", "context", "impact", "history", "workspaces"];
+const TABS: TabId[] = ["graph", "context", "impact", "history", "ai", "tasks", "github", "workspaces"];
 
 function bootstrap(): void {
   const token = window.__CSE_TOKEN__ ?? "";
@@ -248,9 +248,11 @@ function bootstrap(): void {
   const liveEvents = new LiveEvents();
   liveEvents.onStatusChange((connected) => {
     store.set({ connected });
-    statusDot.classList.toggle("is-online", connected);
-    statusDot.classList.toggle("is-offline", !connected);
-    statusText.textContent = connected ? "Live" : "Reconnecting\u2026";
+    if (connected) {
+      statusDot.classList.toggle("is-online", true);
+      statusDot.classList.toggle("is-offline", false);
+      statusText.textContent = "Live";
+    }
   });
   liveEvents.onEvent((event) => {
     switch (event.type) {
@@ -280,6 +282,8 @@ function bootstrap(): void {
   void (async () => {
     try {
       const health = await api.health();
+      statusDot.classList.toggle("is-online", true);
+      statusDot.classList.toggle("is-offline", false);
       statusText.textContent = "Live";
       void health;
     } catch {

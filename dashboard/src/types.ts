@@ -213,7 +213,7 @@ export interface SseEvent {
   data: Record<string, string>;
 }
 
-export type TabId = "graph" | "context" | "impact" | "history" | "workspaces";
+export type TabId = "graph" | "context" | "impact" | "history" | "ai" | "tasks" | "github" | "workspaces";
 
 export interface RememberInput {
   file: string;

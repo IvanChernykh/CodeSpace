@@ -11,7 +11,7 @@ import { HistoryPanel } from "./panels/history-panel.js";
 import { WorkspacesPanel } from "./panels/workspaces-panel.js";
 import { CommandPalette } from "./command-palette.js";
 import { LiveEvents } from "./sse.js";
-const TABS = ["graph", "context", "impact", "history", "workspaces"];
+const TABS = ["graph", "context", "impact", "history", "ai", "tasks", "github", "workspaces"];
 function bootstrap() {
     const token = window.__CSE_TOKEN__ ?? "";
     const api = new ApiClient(token);
@@ -231,9 +231,11 @@ function bootstrap() {
     const liveEvents = new LiveEvents();
     liveEvents.onStatusChange((connected) => {
         store.set({ connected });
-        statusDot.classList.toggle("is-online", connected);
-        statusDot.classList.toggle("is-offline", !connected);
-        statusText.textContent = connected ? "Live" : "Reconnecting\u2026";
+        if (connected) {
+            statusDot.classList.toggle("is-online", true);
+            statusDot.classList.toggle("is-offline", false);
+            statusText.textContent = "Live";
+        }
     });
     liveEvents.onEvent((event) => {
         switch (event.type) {
@@ -263,6 +265,8 @@ function bootstrap() {
     void (async () => {
         try {
             const health = await api.health();
+            statusDot.classList.toggle("is-online", true);
+            statusDot.classList.toggle("is-offline", false);
             statusText.textContent = "Live";
             void health;
         }
