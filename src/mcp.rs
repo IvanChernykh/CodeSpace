@@ -123,7 +123,8 @@ fn handle_message(
                 return Err(Error::Protocol("tools/call must include an id".to_string()));
             }
             let name = required_json_string(input, "name")?;
-            let (text, is_error) = match call_tool(root, graph, &name, input) {
+            let arguments = extract_json_object(input, "arguments").unwrap_or_else(|| "{}".to_string());
+            let (text, is_error) = match call_tool(root, graph, &name, &arguments) {
                 Ok(text) => (text, false),
                 Err(error) => (error.to_string(), true),
             };
@@ -375,6 +376,40 @@ fn extract_json_string(input: &str, key: &str) -> Option<String> {
     let position = find_json_key(input, key)?;
     let index = skip_whitespace(input.as_bytes(), position);
     parse_json_string_at(input, index).map(|(value, _)| value)
+}
+
+fn extract_json_object(input: &str, key: &str) -> Option<String> {
+    let position = find_json_key(input, key)?;
+    let bytes = input.as_bytes();
+    let mut index = skip_whitespace(bytes, position);
+    if bytes.get(index) != Some(&b'{') {
+        return None;
+    }
+    let start = index;
+    let mut depth = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(input[start..=index].to_string());
+                }
+            }
+            b'"' => {
+                index += 1;
+                while index < bytes.len() && bytes[index] != b'"' {
+                    if bytes[index] == b'\\' {
+                        index += 1;
+                    }
+                    index += 1;
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    None
 }
 
 fn extract_json_number(input: &str, key: &str) -> Option<i64> {
