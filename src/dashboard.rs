@@ -5,17 +5,17 @@ pub fn render_dashboard(token: &str) -> String {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>CodeSpace 2.0</title>
+<title>CodeSpace Smart AI</title>
 <link rel="stylesheet" href="/assets/dashboard.css">
 </head>
 <body>
 <header class="app-header">
-  <div class="app-logo">CodeSpace<span>2.0</span></div>
+  <div class="app-logo">CodeSpace<span>Smart AI</span></div>
   <div class="header-spacer"></div>
   <select id="workspaceSelect" class="header-select" aria-label="Workspace">
     <option value="">Loading workspaces...</option>
   </select>
-  <button id="paletteTrigger" class="icon-button" title="Command palette (Ctrl+K)" aria-label="Command palette">&#8984;K</button>
+  <button id="paletteTrigger" class="icon-button" title="Command palette (Ctrl+K)" aria-label="Command palette">Cmd K</button>
   <button id="doctorBtn" class="secondary-button" title="Run doctor check">Doctor</button>
   <button id="updateIndexBtn" class="primary-button">Update Index</button>
   <div class="status-cluster">
@@ -29,6 +29,9 @@ pub fn render_dashboard(token: &str) -> String {
   <div class="tab" data-tab="context" role="tab" tabindex="0">Context</div>
   <div class="tab" data-tab="impact" role="tab" tabindex="0">Impact</div>
   <div class="tab" data-tab="history" role="tab" tabindex="0">History</div>
+  <div class="tab" data-tab="ai" role="tab" tabindex="0">AI Chat</div>
+  <div class="tab" data-tab="tasks" role="tab" tabindex="0">Tasks</div>
+  <div class="tab" data-tab="github" role="tab" tabindex="0">GitHub</div>
   <div class="tab" data-tab="workspaces" role="tab" tabindex="0">Workspaces</div>
 </nav>
 
@@ -103,7 +106,7 @@ pub fn render_dashboard(token: &str) -> String {
       </div>
       <div data-history-results></div>
       <details class="panel-form" style="margin-top:20px">
-        <summary style="font-size:13px;font-weight:600;cursor:pointer;color:var(--accent)">Remember a decision</summary>
+        <summary style="font-size:13px;font-weight:600;cursor:pointer;color:var(--fg)">Remember a decision</summary>
         <form data-remember-form style="display:flex;flex-wrap:wrap;gap:10px;margin-top:12px">
           <div class="form-field grow">
             <label>Summary</label>
@@ -132,10 +135,52 @@ pub fn render_dashboard(token: &str) -> String {
       </details>
     </div>
 
+    <div class="panel" data-panel="ai" style="display:none;flex-direction:column;padding:0">
+      <div class="ai-chat-panel">
+        <div class="ai-chat-messages" id="aiMessages">
+          <div class="ai-msg is-system">CodeSpace Smart AI ready. Ask anything about your codebase.</div>
+        </div>
+        <div class="ai-chat-input-row">
+          <textarea class="ai-chat-input" id="aiInput" placeholder="Ask about code, architecture, bugs..." rows="1"></textarea>
+          <button class="ai-chat-send" id="aiSend">Send</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" data-panel="tasks" style="display:none">
+      <div class="panel-form">
+        <div class="form-field grow">
+          <label>Title</label>
+          <input id="taskTitle" type="text" placeholder="Task title...">
+        </div>
+        <div class="form-field">
+          <label>Priority</label>
+          <select id="taskPriority">
+            <option value="low">Low</option>
+            <option value="medium" selected>Medium</option>
+            <option value="high">High</option>
+            <option value="critical">Critical</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label>Tags (comma)</label>
+          <input id="taskTags" type="text" placeholder="bug,ui" style="width:100px">
+        </div>
+        <button class="primary-button" id="taskAddBtn">Add Task</button>
+      </div>
+      <div class="task-list" id="taskList"></div>
+    </div>
+
+    <div class="panel" data-panel="github" style="display:none">
+      <div id="githubContent">
+        <div class="gh-not-linked">Loading GitHub status...</div>
+      </div>
+    </div>
+
     <div class="panel" data-panel="workspaces">
       <div data-workspaces-list></div>
       <details class="panel-form" style="margin-top:20px">
-        <summary style="font-size:13px;font-weight:600;cursor:pointer;color:var(--accent)">Register a new workspace</summary>
+        <summary style="font-size:13px;font-weight:600;cursor:pointer;color:var(--fg)">Register a new workspace</summary>
         <form data-workspace-form style="display:flex;flex-wrap:wrap;gap:10px;margin-top:12px">
           <div class="form-field grow">
             <label>Directory path</label>
@@ -173,6 +218,127 @@ pub fn render_dashboard(token: &str) -> String {
 
 <script>window.__CSE_TOKEN__ = "{token}";</script>
 <script type="module" src="/assets/main.js"></script>
+<script>
+// AI Chat
+(function(){{
+  const msgs = document.getElementById('aiMessages');
+  const input = document.getElementById('aiInput');
+  const sendBtn = document.getElementById('aiSend');
+  const token = window.__CSE_TOKEN__ || '';
+  async function sendChat() {{
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    sendBtn.disabled = true;
+    const userDiv = document.createElement('div');
+    userDiv.className = 'ai-msg is-user';
+    userDiv.textContent = text;
+    msgs.appendChild(userDiv);
+    const thinkingDiv = document.createElement('div');
+    thinkingDiv.className = 'ai-msg is-assistant';
+    thinkingDiv.textContent = 'Thinking...';
+    msgs.appendChild(thinkingDiv);
+    msgs.scrollTop = msgs.scrollHeight;
+    try {{
+      const r = await fetch('/api/v1/ai/chat', {{
+        method: 'POST',
+        headers: {{ 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }},
+        body: JSON.stringify({{ query: text }})
+      }});
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      thinkingDiv.textContent = data.response || data.error || 'No response';
+    }} catch(e) {{
+      thinkingDiv.textContent = 'Error: ' + e.message;
+    }}
+    msgs.scrollTop = msgs.scrollHeight;
+    sendBtn.disabled = false;
+  }}
+  sendBtn.addEventListener('click', sendChat);
+  input.addEventListener('keydown', (e) => {{ if (e.key === 'Enter' && !e.shiftKey) {{ e.preventDefault(); sendChat(); }} }});
+}})();
+
+// Tasks
+(function(){{
+  const list = document.getElementById('taskList');
+  const titleInput = document.getElementById('taskTitle');
+  const prioritySelect = document.getElementById('taskPriority');
+  const tagsInput = document.getElementById('taskTags');
+  const addBtn = document.getElementById('taskAddBtn');
+  const token = window.__CSE_TOKEN__ || '';
+  async function loadTasks() {{
+    try {{
+      const r = await fetch('/api/v1/tasks', {{ headers: {{ 'Authorization': 'Bearer ' + token }} }});
+      if (!r.ok) return;
+      const data = await r.json();
+      list.innerHTML = '';
+      for (const t of (data.tasks || [])) {{
+        const card = document.createElement('div');
+        card.className = 'task-card' + (t.status === 'done' ? ' is-done' : '');
+        const dot = document.createElement('div');
+        dot.className = 'task-priority-dot is-' + (t.priority || 'medium');
+        const body = document.createElement('div');
+        body.className = 'task-body';
+        body.innerHTML = '<div class="task-title"></div><div class="task-desc"></div><div class="task-meta"><span class="task-status-badge">' + (t.status||'todo') + '</span></div>';
+        body.querySelector('.task-title').textContent = t.title;
+        body.querySelector('.task-desc').textContent = t.description || '';
+        if (t.tags && t.tags.length) {{
+          const tagsDiv = document.createElement('div');
+          tagsDiv.className = 'task-tags';
+          for (const tag of t.tags) {{
+            const span = document.createElement('span');
+            span.className = 'task-tag';
+            span.textContent = tag;
+            tagsDiv.appendChild(span);
+          }}
+          body.querySelector('.task-meta').appendChild(tagsDiv);
+        }}
+        card.appendChild(dot);
+        card.appendChild(body);
+        list.appendChild(card);
+      }}
+    }} catch(e) {{}}
+  }}
+  addBtn.addEventListener('click', async () => {{
+    const title = titleInput.value.trim();
+    if (!title) return;
+    addBtn.disabled = true;
+    try {{
+      await fetch('/api/v1/tasks', {{
+        method: 'POST',
+        headers: {{ 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }},
+        body: JSON.stringify({{ title, priority: prioritySelect.value, tags: tagsInput.value }})
+      }});
+      titleInput.value = '';
+      tagsInput.value = '';
+      loadTasks();
+    }} catch(e) {{}}
+    addBtn.disabled = false;
+  }});
+  loadTasks();
+}})();
+
+// GitHub
+(function(){{
+  const content = document.getElementById('githubContent');
+  const token = window.__CSE_TOKEN__ || '';
+  async function loadGitHub() {{
+    try {{
+      const r = await fetch('/api/v1/github/status', {{ headers: {{ 'Authorization': 'Bearer ' + token }} }});
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      if (!data.token_set) {{
+        content.innerHTML = '<div class="gh-not-linked">GitHub not linked.<br>Run: <code>cse github link --token &lt;token&gt; --username &lt;user&gt;</code></div>';
+        return;
+      }}
+      content.innerHTML = '<div class="gh-status-card"><div class="gh-label">Username</div><div class="gh-value">' + (data.username||'') + '</div></div>';
+    }} catch(e) {{
+      content.innerHTML = '<div class="gh-not-linked">Error loading GitHub status</div>';
+    }}
+  }}
+  loadGitHub();
+}})();
+</script>
 </body>
 </html>"#
     )

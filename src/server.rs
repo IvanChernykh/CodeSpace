@@ -519,6 +519,45 @@ fn handle_connection(
             let html = crate::dashboard::render_dashboard(&token);
             write_html_response(&mut stream, 200, &html)
         }
+        ("POST", "/api/v1/ai/chat") => {
+            let body = extract_body(&request);
+            let query = extract_json_string(&body, "query").unwrap_or_default();
+            if query.is_empty() {
+                return write_json_response(&mut stream, 400, "{\"error\":\"missing query\"}");
+            }
+            match crate::ai::chat(&mut crate::ai::ChatSession::new(None), &query, None) {
+                Ok(response) => write_json_response(&mut stream, 200, &format!("{{\"response\":\"{}\"}}", crate::util::json_escape(&response))),
+                Err(error) => write_json_response(&mut stream, 500, &format!("{{\"error\":\"{}\"}}", crate::util::json_escape(&error.to_string()))),
+            }
+        }
+        ("GET", "/api/v1/tasks") => {
+            let board = crate::tasks::load_tasks(root);
+            write_json_response(&mut stream, 200, &board.to_json())
+        }
+        ("POST", "/api/v1/tasks") => {
+            let body = extract_body(&request);
+            let title = extract_json_string(&body, "title").unwrap_or_default();
+            if title.is_empty() {
+                return write_json_response(&mut stream, 400, "{\"error\":\"missing title\"}");
+            }
+            let description = extract_json_string(&body, "description").unwrap_or_default();
+            let priority = extract_json_string(&body, "priority")
+                .and_then(|p| crate::tasks::TaskPriority::parse(&p))
+                .unwrap_or(crate::tasks::TaskPriority::Medium);
+            let tags: Vec<String> = extract_json_string(&body, "tags")
+                .map(|t| t.split(',').map(String::from).collect())
+                .unwrap_or_default();
+            let mut board = crate::tasks::load_tasks(root);
+            let task = board.add(&title, &description, priority, None, tags);
+            let task_id = task.id.clone();
+            let task_title = task.title.clone();
+            let _ = crate::tasks::save_tasks(root, &board);
+            write_json_response(&mut stream, 200, &format!("{{\"id\":\"{}\",\"title\":\"{}\"}}", crate::util::json_escape(&task_id), crate::util::json_escape(&task_title)))
+        }
+        ("GET", "/api/v1/github/status") => {
+            let config = crate::github_integration::status(root);
+            write_json_response(&mut stream, 200, &config.to_json())
+        }
         ("GET", "/api/v1/events") => {
             handle_event_stream(&mut stream, state)
         }
