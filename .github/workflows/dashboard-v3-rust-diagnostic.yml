@@ -38,6 +38,7 @@ jobs:
           sha256sum /tmp/payload.tar.gz
           echo "9145789e504649860b5165003e860d913ec19969b9a62073150d8733fec7239b  /tmp/payload.tar.gz" | sha256sum --check -
           tar -xzf /tmp/payload.tar.gz
+          python .repair/v3/pre_apply.py
           python scripts/apply_v3_repair.py
           cargo fmt --all
           rustc --version
