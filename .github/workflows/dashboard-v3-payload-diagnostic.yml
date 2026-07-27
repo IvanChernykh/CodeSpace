@@ -30,7 +30,8 @@ jobs:
             .repair/v3/chunk-06a .repair/v3/chunk-06b \
             .repair/v3/chunk-07a .repair/v3/chunk-07b \
             .repair/v3/chunk-08a \
-            .repair/v3/chunk-08b0 .repair/v3/chunk-08b1 .repair/v3/chunk-08b2 .repair/v3/chunk-08b3
+            .repair/v3/chunk-08b0 .repair/v3/chunk-08b1 .repair/v3/chunk-08b2 \
+            .repair/v3/chunk-08b30 .repair/v3/chunk-08b31
           cat \
             .repair/v3/chunk-00 .repair/v3/chunk-01 .repair/v3/chunk-02 .repair/v3/chunk-03 \
             .repair/v3/chunk-04a .repair/v3/chunk-04b \
@@ -38,6 +39,7 @@ jobs:
             .repair/v3/chunk-06a .repair/v3/chunk-06b \
             .repair/v3/chunk-07a .repair/v3/chunk-07b \
             .repair/v3/chunk-08a \
-            .repair/v3/chunk-08b0 .repair/v3/chunk-08b1 .repair/v3/chunk-08b2 .repair/v3/chunk-08b3 > /tmp/payload.b64
+            .repair/v3/chunk-08b0 .repair/v3/chunk-08b1 .repair/v3/chunk-08b2 \
+            .repair/v3/chunk-08b30 .repair/v3/chunk-08b31 > /tmp/payload.b64
           base64 --decode /tmp/payload.b64 > /tmp/payload.tar.gz
           sha256sum /tmp/payload.tar.gz
