@@ -42,13 +42,17 @@ jobs:
             exit 1
           fi
           if ! cargo test --locked --all-targets > /tmp/test.log 2>&1; then
-            echo "=== CARGO TEST FAILURE ==="
-            tail -n 100 /tmp/test.log
+            echo "=== CARGO TEST FAILURE SUMMARY ==="
+            grep -nE "FAILED|panicked|failures:|error:|test result:" /tmp/test.log | tail -n 120 || true
+            echo "=== CARGO TEST FAILURE TAIL ==="
+            tail -n 80 /tmp/test.log
             exit 1
           fi
           if ! cargo clippy --locked --all-targets --all-features -- -D warnings > /tmp/clippy.log 2>&1; then
-            echo "=== CARGO CLIPPY FAILURE ==="
-            tail -n 120 /tmp/clippy.log
+            echo "=== CARGO CLIPPY FAILURE SUMMARY ==="
+            grep -nE "error:|warning:|denied" /tmp/clippy.log | tail -n 120 || true
+            echo "=== CARGO CLIPPY FAILURE TAIL ==="
+            tail -n 100 /tmp/clippy.log
             exit 1
           fi
           echo "Rust diagnostic passed"
