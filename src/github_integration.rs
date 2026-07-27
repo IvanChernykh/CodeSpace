@@ -279,9 +279,10 @@ fn run_gh(args: &[&str], input: Option<&str>) -> Result<String> {
         ))
     })?;
     if let Some(input) = input {
-        let stdin = child.stdin.as_mut().ok_or_else(|| {
-            Error::Protocol("failed to open stdin for GitHub CLI".to_string())
-        })?;
+        let stdin = child
+            .stdin
+            .as_mut()
+            .ok_or_else(|| Error::Protocol("failed to open stdin for GitHub CLI".to_string()))?;
         stdin.write_all(input.as_bytes())?;
     }
     let output = child.wait_with_output()?;

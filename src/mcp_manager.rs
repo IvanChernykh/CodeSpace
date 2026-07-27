@@ -187,8 +187,7 @@ impl McpManager {
                 return self.fail_start(id, error.to_string());
             }
         };
-        if initialize_response.contains("\"error\"")
-            || !initialize_response.contains("\"result\"")
+        if initialize_response.contains("\"error\"") || !initialize_response.contains("\"result\"")
         {
             let _ = child.kill();
             let _ = child.wait();
@@ -225,7 +224,10 @@ impl McpManager {
         if tools_response.contains("\"error\"") || !tools_response.contains("\"tools\"") {
             let _ = child.kill();
             let _ = child.wait();
-            return self.fail_start(id, "MCP tools/list did not return a tool catalog".to_string());
+            return self.fail_start(
+                id,
+                "MCP tools/list did not return a tool catalog".to_string(),
+            );
         }
 
         child.stdin = Some(stdin);
@@ -460,9 +462,7 @@ pub fn load_mcp_manager() -> McpManager {
             fields[2].split('\u{1f}').map(unescape).collect()
         };
         let auto_start = fields[3] == "1";
-        let registered = fields[4]
-            .parse::<u128>()
-            .unwrap_or_else(|_| now_unix_ms());
+        let registered = fields[4].parse::<u128>().unwrap_or_else(|_| now_unix_ms());
         let id = stable_id(&["mcp", &name, &command]).to_string();
         manager.servers.insert(
             id.clone(),
@@ -562,7 +562,10 @@ mod tests {
 
     #[test]
     fn parses_response_ids() {
-        assert_eq!(json_response_id("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{}}"), Some(2));
+        assert_eq!(
+            json_response_id("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{}}"),
+            Some(2)
+        );
         assert_eq!(json_response_id("{\"method\":\"notifications/log\"}"), None);
     }
 
