@@ -56,7 +56,8 @@ jobs:
           path: |
             artifacts/dashboard-overview.png
             artifacts/dashboard-overview.html
-          if-no-files-found: warn
+            artifacts/dashboard-render-error.txt
+          if-no-files-found: error
       - name: Validate Pages site
         run: python3 scripts/validate_site.py
       - name: Behavioral self-test
@@ -70,7 +71,7 @@ jobs:
             artifacts/self-test-report.json
             artifacts/SELF_TEST.md
             artifacts/self-context.txt
-          if-no-files-found: error
+          if-no-files-found: warn
       - name: Package verification
         run: cargo +1.97.1 package --allow-dirty --locked
 
