@@ -2,8 +2,15 @@ use crate::model::{Error, Result};
 use crate::util::{json_escape, now_unix_ms, stable_id};
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::thread;
+use std::time::{Duration, Instant};
+
+const MCP_PROTOCOL_VERSION: &str = "2025-06-18";
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(8);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum McpServerStatus {
@@ -36,6 +43,8 @@ pub struct ExternalMcpServer {
     pub registered_unix_ms: u128,
     pub last_started_unix_ms: u128,
     pub last_error: String,
+    pub protocol_version: String,
+    pub tools_verified: bool,
 }
 
 #[derive(Debug)]
@@ -82,10 +91,12 @@ impl McpManager {
             registered_unix_ms: now_unix_ms(),
             last_started_unix_ms: 0,
             last_error: String::new(),
+            protocol_version: String::new(),
+            tools_verified: false,
         };
         self.servers.insert(id.clone(), server);
         if auto_start {
-            let _ = self.start(&id);
+            self.start(&id)?;
         }
         self.servers
             .get(&id)
@@ -115,35 +126,130 @@ impl McpManager {
         let env = server.env.clone();
         if let Some(server) = self.servers.get_mut(id) {
             server.status = McpServerStatus::Starting;
+            server.last_error.clear();
+            server.protocol_version.clear();
+            server.tools_verified = false;
         }
+
         let mut process = Command::new(&command);
         process.args(&args);
         process.stdin(Stdio::piped());
         process.stdout(Stdio::piped());
-        process.stderr(Stdio::piped());
+        // MCP permits UTF-8 logs on stderr. Discard them here so an unmanaged
+        // pipe can never fill and block the child process.
+        process.stderr(Stdio::null());
         for (key, value) in &env {
             process.env(key, value);
         }
-        match process.spawn() {
-            Ok(child) => {
-                self.processes.insert(id.to_string(), child);
-                if let Some(server) = self.servers.get_mut(id) {
-                    server.status = McpServerStatus::Running;
-                    server.last_started_unix_ms = now_unix_ms();
-                    server.last_error.clear();
-                }
-                Ok(())
+
+        let mut child = match process.spawn() {
+            Ok(child) => child,
+            Err(error) => return self.fail_start(id, format!("failed to spawn process: {error}")),
+        };
+        let mut stdin = match child.stdin.take() {
+            Some(stdin) => stdin,
+            None => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return self.fail_start(id, "MCP process stdin is unavailable".to_string());
             }
-            Err(error) => {
-                if let Some(server) = self.servers.get_mut(id) {
-                    server.status = McpServerStatus::Error;
-                    server.last_error = error.to_string();
-                }
-                Err(Error::Protocol(format!(
-                    "failed to start MCP server `{id}`: {error}"
-                )))
+        };
+        let stdout = match child.stdout.take() {
+            Some(stdout) => stdout,
+            None => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return self.fail_start(id, "MCP process stdout is unavailable".to_string());
             }
+        };
+        let responses = spawn_stdout_drain(stdout);
+
+        let initialize = format!(
+            "{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{{\"protocolVersion\":\"{MCP_PROTOCOL_VERSION}\",\"capabilities\":{{}},\"clientInfo\":{{\"name\":\"CodeSpace\",\"version\":\"{}\"}}}}}}\n",
+            env!("CARGO_PKG_VERSION")
+        );
+        if let Err(error) = stdin.write_all(initialize.as_bytes()) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return self.fail_start(id, format!("initialize write failed: {error}"));
         }
+        if let Err(error) = stdin.flush() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return self.fail_start(id, format!("initialize flush failed: {error}"));
+        }
+
+        let initialize_response = match wait_for_response(&responses, 1, HANDSHAKE_TIMEOUT) {
+            Ok(response) => response,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return self.fail_start(id, error.to_string());
+            }
+        };
+        if initialize_response.contains("\"error\"")
+            || !initialize_response.contains("\"result\"")
+        {
+            let _ = child.kill();
+            let _ = child.wait();
+            return self.fail_start(id, "MCP initialize returned an error".to_string());
+        }
+        let negotiated = json_string(&initialize_response, "protocolVersion")
+            .unwrap_or_else(|| MCP_PROTOCOL_VERSION.to_string());
+
+        let initialized = "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n";
+        if let Err(error) = stdin.write_all(initialized.as_bytes()) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return self.fail_start(id, format!("initialized notification failed: {error}"));
+        }
+        let tools_list = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}\n";
+        if let Err(error) = stdin.write_all(tools_list.as_bytes()) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return self.fail_start(id, format!("tools/list write failed: {error}"));
+        }
+        if let Err(error) = stdin.flush() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return self.fail_start(id, format!("tools/list flush failed: {error}"));
+        }
+        let tools_response = match wait_for_response(&responses, 2, HANDSHAKE_TIMEOUT) {
+            Ok(response) => response,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return self.fail_start(id, error.to_string());
+            }
+        };
+        if tools_response.contains("\"error\"") || !tools_response.contains("\"tools\"") {
+            let _ = child.kill();
+            let _ = child.wait();
+            return self.fail_start(id, "MCP tools/list did not return a tool catalog".to_string());
+        }
+
+        child.stdin = Some(stdin);
+        self.processes.insert(id.to_string(), child);
+        if let Some(server) = self.servers.get_mut(id) {
+            server.status = McpServerStatus::Running;
+            server.last_started_unix_ms = now_unix_ms();
+            server.last_error.clear();
+            server.protocol_version = negotiated;
+            server.tools_verified = true;
+        }
+        Ok(())
+    }
+
+    fn fail_start(&mut self, id: &str, message: String) -> Result<()> {
+        if let Some(server) = self.servers.get_mut(id) {
+            server.status = McpServerStatus::Error;
+            server.last_error = message.clone();
+            server.protocol_version.clear();
+            server.tools_verified = false;
+        }
+        Err(Error::Protocol(format!(
+            "failed to initialize MCP server `{id}`: {message}"
+        )))
     }
 
     pub fn stop(&mut self, id: &str) -> Result<()> {
@@ -158,6 +264,8 @@ impl McpManager {
         }
         if let Some(server) = self.servers.get_mut(id) {
             server.status = McpServerStatus::Stopped;
+            server.protocol_version.clear();
+            server.tools_verified = false;
         }
         Ok(())
     }
@@ -189,7 +297,7 @@ impl McpManager {
                     .map(|key| format!("\"{}\"", json_escape(key)))
                     .collect();
                 format!(
-                    "{{\"id\":\"{}\",\"name\":\"{}\",\"command\":\"{}\",\"args\":[{}],\"env_keys\":[{}],\"status\":\"{}\",\"auto_start\":{},\"registered_unix_ms\":{},\"last_started_unix_ms\":{},\"last_error\":\"{}\"}}",
+                    "{{\"id\":\"{}\",\"name\":\"{}\",\"command\":\"{}\",\"args\":[{}],\"env_keys\":[{}],\"status\":\"{}\",\"auto_start\":{},\"registered_unix_ms\":{},\"last_started_unix_ms\":{},\"last_error\":\"{}\",\"protocol_version\":\"{}\",\"tools_verified\":{}}}",
                     json_escape(&server.id),
                     json_escape(&server.name),
                     json_escape(&server.command),
@@ -199,7 +307,9 @@ impl McpManager {
                     server.auto_start,
                     server.registered_unix_ms,
                     server.last_started_unix_ms,
-                    json_escape(&server.last_error)
+                    json_escape(&server.last_error),
+                    json_escape(&server.protocol_version),
+                    server.tools_verified
                 )
             })
             .collect();
@@ -216,12 +326,16 @@ impl McpManager {
                     if let Some(server) = self.servers.get_mut(&id) {
                         server.status = McpServerStatus::Error;
                         server.last_error = format!("process exited: {status}");
+                        server.protocol_version.clear();
+                        server.tools_verified = false;
                     }
                 }
                 Some(Err(error)) => {
                     if let Some(server) = self.servers.get_mut(&id) {
                         server.status = McpServerStatus::Error;
                         server.last_error = error.to_string();
+                        server.protocol_version.clear();
+                        server.tools_verified = false;
                     }
                 }
                 _ => {}
@@ -240,6 +354,83 @@ impl Drop for McpManager {
     fn drop(&mut self) {
         self.stop_all();
     }
+}
+
+fn spawn_stdout_drain(stdout: std::process::ChildStdout) -> Receiver<String> {
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines() {
+            let Ok(line) = line else {
+                break;
+            };
+            // Keep draining even after the handshake receiver is dropped.
+            let _ = sender.send(line);
+        }
+    });
+    receiver
+}
+
+fn wait_for_response(receiver: &Receiver<String>, id: u64, timeout: Duration) -> Result<String> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(Error::Protocol(format!(
+                "timed out waiting for MCP response id {id}"
+            )));
+        }
+        match receiver.recv_timeout(remaining) {
+            Ok(line) if json_response_id(&line) == Some(id) => return Ok(line),
+            Ok(_) => continue,
+            Err(RecvTimeoutError::Timeout) => {
+                return Err(Error::Protocol(format!(
+                    "timed out waiting for MCP response id {id}"
+                )));
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                return Err(Error::Protocol(
+                    "MCP server closed stdout during initialization".to_string(),
+                ));
+            }
+        }
+    }
+}
+
+fn json_response_id(input: &str) -> Option<u64> {
+    let needle = "\"id\"";
+    let position = input.find(needle)?;
+    let after = &input[position + needle.len()..];
+    let colon = after.find(':')?;
+    let value = after[colon + 1..].trim_start();
+    let digits: String = value.chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok()
+}
+
+fn json_string(input: &str, key: &str) -> Option<String> {
+    let needle = format!("\"{key}\"");
+    let position = input.find(&needle)?;
+    let after = &input[position + needle.len()..];
+    let colon = after.find(':')?;
+    let value = after[colon + 1..].trim_start();
+    if !value.starts_with('\"') {
+        return None;
+    }
+    let mut output = String::new();
+    let mut escaped = false;
+    for character in value[1..].chars() {
+        if escaped {
+            output.push(character);
+            escaped = false;
+        } else if character == '\\' {
+            escaped = true;
+        } else if character == '\"' {
+            return Some(output);
+        } else {
+            output.push(character);
+        }
+    }
+    None
 }
 
 fn state_path() -> PathBuf {
@@ -269,7 +460,9 @@ pub fn load_mcp_manager() -> McpManager {
             fields[2].split('\u{1f}').map(unescape).collect()
         };
         let auto_start = fields[3] == "1";
-        let registered = fields[4].parse::<u128>().unwrap_or_else(|_| now_unix_ms());
+        let registered = fields[4]
+            .parse::<u128>()
+            .unwrap_or_else(|_| now_unix_ms());
         let id = stable_id(&["mcp", &name, &command]).to_string();
         manager.servers.insert(
             id.clone(),
@@ -284,6 +477,8 @@ pub fn load_mcp_manager() -> McpManager {
                 registered_unix_ms: registered,
                 last_started_unix_ms: 0,
                 last_error: String::new(),
+                protocol_version: String::new(),
+                tools_verified: false,
             },
         );
     }
@@ -359,4 +554,26 @@ fn unescape(value: &str) -> String {
         output.push('\\');
     }
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_response_ids() {
+        assert_eq!(json_response_id("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{}}"), Some(2));
+        assert_eq!(json_response_id("{\"method\":\"notifications/log\"}"), None);
+    }
+
+    #[test]
+    fn extracts_negotiated_protocol() {
+        assert_eq!(
+            json_string(
+                "{\"result\":{\"protocolVersion\":\"2025-06-18\"}}",
+                "protocolVersion"
+            ),
+            Some("2025-06-18".to_string())
+        );
+    }
 }
