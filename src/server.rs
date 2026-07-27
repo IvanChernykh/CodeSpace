@@ -3,7 +3,7 @@ use crate::events::{Event, EventType};
 use crate::model::{Error, GraphIndex, Result};
 use crate::storage;
 use crate::util::json_escape;
-use crate::workspace::{load_global_registry, WorkspaceRegistry};
+use crate::workspace::{WorkspaceRegistry, load_global_registry};
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -13,7 +13,6 @@ use std::thread;
 use std::time::Duration;
 
 const READ_TIMEOUT: Duration = Duration::from_secs(10);
-const MAX_REQUEST_SIZE: usize = 1_048_576;
 
 #[derive(Debug, Clone)]
 pub struct ServerConfig {
@@ -73,7 +72,10 @@ pub struct EventLog {
 
 impl EventLog {
     fn new() -> Self {
-        Self { next_id: 1, events: std::collections::VecDeque::new() }
+        Self {
+            next_id: 1,
+            events: std::collections::VecDeque::new(),
+        }
     }
 
     pub fn publish(&mut self, event: &Event) {
@@ -86,16 +88,22 @@ impl EventLog {
     }
 
     fn since(&self, last_id: u64) -> Vec<(u64, String)> {
-        self.events.iter().filter(|(id, _)| *id > last_id).cloned().collect()
+        self.events
+            .iter()
+            .filter(|(id, _)| *id > last_id)
+            .cloned()
+            .collect()
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ServerState {
     pub config: ServerConfig,
     pub started_unix_ms: u128,
     pub workspaces: WorkspaceRegistry,
     pub events: EventLog,
+    pub skills: crate::skills::SkillRegistry,
+    pub mcp: crate::mcp_manager::McpManager,
 }
 
 impl ServerState {
@@ -107,20 +115,21 @@ impl ServerState {
             started_unix_ms: crate::util::now_unix_ms(),
             workspaces: load_global_registry(),
             events,
+            skills: crate::skills::load_skill_registry(),
+            mcp: crate::mcp_manager::load_mcp_manager(),
         }
     }
 }
 
 pub fn discover_instance(port: u16) -> Option<ServerConfig> {
     let address = format!("127.0.0.1:{port}");
-    let mut stream = TcpStream::connect_timeout(
-        &address.parse().ok()?,
-        Duration::from_millis(500),
-    ).ok()?;
-    stream.set_read_timeout(Some(Duration::from_millis(500))).ok()?;
-    let request = format!(
-        "GET /api/v1/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
-    );
+    let mut stream =
+        TcpStream::connect_timeout(&address.parse().ok()?, Duration::from_millis(500)).ok()?;
+    stream
+        .set_read_timeout(Some(Duration::from_millis(500)))
+        .ok()?;
+    let request =
+        "GET /api/v1/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n".to_string();
     stream.write_all(request.as_bytes()).ok()?;
     let mut buffer = Vec::with_capacity(4096);
     stream.read_to_end(&mut buffer).ok()?;
@@ -188,26 +197,12 @@ fn bind_with_dynamic_port(config: &mut ServerConfig) -> Result<TcpListener> {
 
 fn handle_connection(
     mut stream: TcpStream,
-    root: &PathBuf,
+    root: &Path,
     state: &Arc<Mutex<ServerState>>,
     registry: &ActionRegistry,
 ) -> Result<()> {
     stream.set_read_timeout(Some(READ_TIMEOUT))?;
-    let mut buffer = [0_u8; 16_384];
-    let mut request_data = Vec::new();
-    loop {
-        let read = stream.read(&mut buffer)?;
-        if read == 0 {
-            break;
-        }
-        request_data.extend_from_slice(&buffer[..read]);
-        if request_data.len() > MAX_REQUEST_SIZE {
-            return write_json_response(&mut stream, 413, "{\"error\":\"request too large\"}");
-        }
-        if request_data.windows(4).any(|w| w == b"\r\n\r\n") {
-            break;
-        }
-    }
+    let request_data = read_http_request(&mut stream)?;
     let request = String::from_utf8_lossy(&request_data);
     let first_line = request.lines().next().unwrap_or_default();
     let mut parts = first_line.split_whitespace();
@@ -231,6 +226,9 @@ fn handle_connection(
     if !is_authorized && !is_public {
         return write_json_response(&mut stream, 401, "{\"error\":\"unauthorized\"}");
     }
+
+    let active_root = resolve_active_root(root, state);
+    let root = &active_root;
 
     match (method, path) {
         ("GET", "/") | ("GET", "/dashboard") => serve_dashboard(&mut stream, state),
@@ -282,7 +280,11 @@ fn handle_connection(
         ("GET", "/api/v1/search") => {
             let query = params.get("q").map_or("", String::as_str).trim();
             if query.is_empty() {
-                return write_json_response(&mut stream, 400, "{\"error\":\"missing q parameter\"}");
+                return write_json_response(
+                    &mut stream,
+                    400,
+                    "{\"error\":\"missing q parameter\"}",
+                );
             }
             let graph = load_graph(root)?;
             let ctx = ActionContext {
@@ -293,20 +295,30 @@ fn handle_connection(
             let mut action_params = ActionParams::default();
             action_params.positional.push(query.to_string());
             if let Some(limit) = params.get("limit") {
-                action_params.flags.insert("limit".to_string(), limit.clone());
+                action_params
+                    .flags
+                    .insert("limit".to_string(), limit.clone());
             }
             if let Some(kind) = params.get("kind") {
                 action_params.flags.insert("kind".to_string(), kind.clone());
             }
             match registry.execute("search", &ctx, &action_params) {
                 Ok(result) => write_json_response(&mut stream, 200, &result.stdout),
-                Err(error) => write_json_response(&mut stream, 500, &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string()))),
+                Err(error) => write_json_response(
+                    &mut stream,
+                    500,
+                    &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string())),
+                ),
             }
         }
         ("GET", "/api/v1/context") => {
             let query = params.get("q").map_or("", String::as_str).trim();
             if query.is_empty() {
-                return write_json_response(&mut stream, 400, "{\"error\":\"missing q parameter\"}");
+                return write_json_response(
+                    &mut stream,
+                    400,
+                    "{\"error\":\"missing q parameter\"}",
+                );
             }
             let graph = load_graph(root)?;
             let ctx = ActionContext {
@@ -317,14 +329,22 @@ fn handle_connection(
             let mut action_params = ActionParams::default();
             action_params.positional.push(query.to_string());
             if let Some(max_tokens) = params.get("max_tokens") {
-                action_params.flags.insert("max-tokens".to_string(), max_tokens.clone());
+                action_params
+                    .flags
+                    .insert("max-tokens".to_string(), max_tokens.clone());
             }
             if let Some(max_items) = params.get("max_items") {
-                action_params.flags.insert("max-items".to_string(), max_items.clone());
+                action_params
+                    .flags
+                    .insert("max-items".to_string(), max_items.clone());
             }
             match registry.execute("context", &ctx, &action_params) {
                 Ok(result) => write_json_response(&mut stream, 200, &result.stdout),
-                Err(error) => write_json_response(&mut stream, 500, &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string()))),
+                Err(error) => write_json_response(
+                    &mut stream,
+                    500,
+                    &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string())),
+                ),
             }
         }
         ("GET", "/api/v1/impact") => {
@@ -342,7 +362,11 @@ fn handle_connection(
             }
             match registry.execute("impact", &ctx, &action_params) {
                 Ok(result) => write_json_response(&mut stream, 200, &result.stdout),
-                Err(error) => write_json_response(&mut stream, 500, &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string()))),
+                Err(error) => write_json_response(
+                    &mut stream,
+                    500,
+                    &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string())),
+                ),
             }
         }
         ("GET", "/api/v1/history") => {
@@ -353,13 +377,19 @@ fn handle_connection(
                 format: OutputFormat::Json,
             };
             let mut action_params = ActionParams::default();
-            action_params.positional.push(params.get("q").cloned().unwrap_or_default());
+            action_params
+                .positional
+                .push(params.get("q").cloned().unwrap_or_default());
             if let Some(v) = params.get("limit") {
                 action_params.flags.insert("limit".to_string(), v.clone());
             }
             match registry.execute("history", &ctx, &action_params) {
                 Ok(result) => write_json_response(&mut stream, 200, &result.stdout),
-                Err(error) => write_json_response(&mut stream, 500, &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string()))),
+                Err(error) => write_json_response(
+                    &mut stream,
+                    500,
+                    &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string())),
+                ),
             }
         }
         ("GET", "/api/v1/read") => {
@@ -370,13 +400,25 @@ fn handle_connection(
                 format: OutputFormat::Json,
             };
             let mut action_params = ActionParams::default();
-            action_params.positional.push(params.get("file").cloned().unwrap_or_default());
+            action_params
+                .positional
+                .push(params.get("file").cloned().unwrap_or_default());
             if let Some(v) = params.get("max_lines") {
-                action_params.flags.insert("max-lines".to_string(), v.clone());
+                action_params
+                    .flags
+                    .insert("max-lines".to_string(), v.clone());
             }
             match registry.execute("read", &ctx, &action_params) {
-                Ok(result) => write_json_response(&mut stream, 200, &format!("{{\"content\":\"{}\"}}", json_escape(&result.stdout))),
-                Err(error) => write_json_response(&mut stream, 400, &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string()))),
+                Ok(result) => write_json_response(
+                    &mut stream,
+                    200,
+                    &format!("{{\"content\":\"{}\"}}", json_escape(&result.stdout)),
+                ),
+                Err(error) => write_json_response(
+                    &mut stream,
+                    400,
+                    &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string())),
+                ),
             }
         }
         ("GET", "/api/v1/stats") => {
@@ -388,7 +430,11 @@ fn handle_connection(
             };
             match registry.execute("stats", &ctx, &ActionParams::default()) {
                 Ok(result) => write_json_response(&mut stream, 200, &result.stdout),
-                Err(error) => write_json_response(&mut stream, 500, &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string()))),
+                Err(error) => write_json_response(
+                    &mut stream,
+                    500,
+                    &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string())),
+                ),
             }
         }
         ("GET", "/api/v1/workspaces") => {
@@ -399,7 +445,11 @@ fn handle_connection(
             let path = params.get("path").map_or("", String::as_str);
             let name = params.get("name").map(|s| s.as_str());
             if path.is_empty() {
-                return write_json_response(&mut stream, 400, "{\"error\":\"missing path parameter\"}");
+                return write_json_response(
+                    &mut stream,
+                    400,
+                    "{\"error\":\"missing path parameter\"}",
+                );
             }
             let mut state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
             match state_guard.workspaces.register(Path::new(path), name) {
@@ -413,41 +463,67 @@ fn handle_connection(
                     );
                     let body = format!(
                         "{{\"id\":\"{}\",\"name\":\"{}\",\"path\":\"{}\"}}",
-                        json_escape(&id), json_escape(&name), json_escape(&path)
+                        json_escape(&id),
+                        json_escape(&name),
+                        json_escape(&path)
                     );
                     write_json_response(&mut stream, 200, &body)
                 }
-                Err(error) => write_json_response(&mut stream, 400, &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string()))),
+                Err(error) => write_json_response(
+                    &mut stream,
+                    400,
+                    &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string())),
+                ),
             }
         }
         ("POST", "/api/v1/workspaces/select") => {
             let id = params.get("id").map_or("", String::as_str);
             if id.is_empty() {
-                return write_json_response(&mut stream, 400, "{\"error\":\"missing id parameter\"}");
+                return write_json_response(
+                    &mut stream,
+                    400,
+                    "{\"error\":\"missing id parameter\"}",
+                );
             }
             let mut state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
             match state_guard.workspaces.select(id) {
                 Ok(()) => {
                     let _ = crate::workspace::save_global_registry(&state_guard.workspaces);
-                    state_guard.events.publish(&Event::new(EventType::WorkspaceSelected, id, 0));
+                    state_guard
+                        .events
+                        .publish(&Event::new(EventType::WorkspaceSelected, id, 0));
                     write_json_response(&mut stream, 200, "{\"status\":\"selected\"}")
                 }
-                Err(error) => write_json_response(&mut stream, 400, &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string()))),
+                Err(error) => write_json_response(
+                    &mut stream,
+                    400,
+                    &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string())),
+                ),
             }
         }
         ("POST", "/api/v1/workspaces/remove") => {
             let id = params.get("id").map_or("", String::as_str);
             if id.is_empty() {
-                return write_json_response(&mut stream, 400, "{\"error\":\"missing id parameter\"}");
+                return write_json_response(
+                    &mut stream,
+                    400,
+                    "{\"error\":\"missing id parameter\"}",
+                );
             }
             let mut state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
             match state_guard.workspaces.remove(id) {
                 Ok(()) => {
                     let _ = crate::workspace::save_global_registry(&state_guard.workspaces);
-                    state_guard.events.publish(&Event::new(EventType::WorkspaceRemoved, id, 0));
+                    state_guard
+                        .events
+                        .publish(&Event::new(EventType::WorkspaceRemoved, id, 0));
                     write_json_response(&mut stream, 200, "{\"status\":\"removed\"}")
                 }
-                Err(error) => write_json_response(&mut stream, 400, &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string()))),
+                Err(error) => write_json_response(
+                    &mut stream,
+                    400,
+                    &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string())),
+                ),
             }
         }
         ("POST", "/api/v1/remember") => {
@@ -458,7 +534,15 @@ fn handle_connection(
                 format: OutputFormat::Json,
             };
             let mut action_params = ActionParams::default();
-            for key in ["file", "symbol", "summary", "rationale", "session", "agent", "tags"] {
+            for key in [
+                "file",
+                "symbol",
+                "summary",
+                "rationale",
+                "session",
+                "agent",
+                "tags",
+            ] {
                 if let Some(v) = params.get(key) {
                     action_params.flags.insert(key.to_string(), v.clone());
                 }
@@ -466,10 +550,22 @@ fn handle_connection(
             match registry.execute("remember", &ctx, &action_params) {
                 Ok(result) => {
                     let mut state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
-                    state_guard.events.publish(&Event::new(EventType::DecisionAdded, "", result.state_version));
-                    write_json_response(&mut stream, 200, &format!("{{\"message\":\"{}\"}}", json_escape(&result.stdout)))
+                    state_guard.events.publish(&Event::new(
+                        EventType::DecisionAdded,
+                        "",
+                        result.state_version,
+                    ));
+                    write_json_response(
+                        &mut stream,
+                        200,
+                        &format!("{{\"message\":\"{}\"}}", json_escape(&result.stdout)),
+                    )
                 }
-                Err(error) => write_json_response(&mut stream, 400, &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string()))),
+                Err(error) => write_json_response(
+                    &mut stream,
+                    400,
+                    &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string())),
+                ),
             }
         }
         ("POST", "/api/v1/update") => {
@@ -480,16 +576,26 @@ fn handle_connection(
                 format: OutputFormat::Json,
             };
             let mut action_params = ActionParams::default();
-            if params.get("force").is_some() {
-                action_params.flags.insert("force".to_string(), "true".to_string());
+            if params.contains_key("force") {
+                action_params
+                    .flags
+                    .insert("force".to_string(), "true".to_string());
             }
             match registry.execute("update", &ctx, &action_params) {
                 Ok(result) => {
                     let mut state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
-                    state_guard.events.publish(&Event::new(EventType::IndexUpdated, "", result.state_version));
+                    state_guard.events.publish(&Event::new(
+                        EventType::IndexUpdated,
+                        "",
+                        result.state_version,
+                    ));
                     write_json_response(&mut stream, 200, &result.stdout)
                 }
-                Err(error) => write_json_response(&mut stream, 500, &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string()))),
+                Err(error) => write_json_response(
+                    &mut stream,
+                    500,
+                    &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string())),
+                ),
             }
         }
         ("POST", "/api/v1/doctor") => {
@@ -500,15 +606,29 @@ fn handle_connection(
                 format: OutputFormat::Json,
             };
             let mut action_params = ActionParams::default();
-            if params.get("repair").is_some() {
-                action_params.flags.insert("repair".to_string(), "true".to_string());
+            if params.contains_key("repair") {
+                action_params
+                    .flags
+                    .insert("repair".to_string(), "true".to_string());
             }
             match registry.execute("doctor", &ctx, &action_params) {
                 Ok(result) => {
-                    let lines: Vec<String> = result.stdout.lines().map(|l| format!("\"{}\"", json_escape(l))).collect();
-                    write_json_response(&mut stream, 200, &format!("{{\"messages\":[{}]}}", lines.join(",")))
+                    let lines: Vec<String> = result
+                        .stdout
+                        .lines()
+                        .map(|l| format!("\"{}\"", json_escape(l)))
+                        .collect();
+                    write_json_response(
+                        &mut stream,
+                        200,
+                        &format!("{{\"messages\":[{}]}}", lines.join(",")),
+                    )
                 }
-                Err(error) => write_json_response(&mut stream, 500, &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string()))),
+                Err(error) => write_json_response(
+                    &mut stream,
+                    500,
+                    &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string())),
+                ),
             }
         }
         ("GET", "/api/v1/dashboard") => {
@@ -522,12 +642,49 @@ fn handle_connection(
         ("POST", "/api/v1/ai/chat") => {
             let body = extract_body(&request);
             let query = extract_json_string(&body, "query").unwrap_or_default();
-            if query.is_empty() {
+            if query.trim().is_empty() {
                 return write_json_response(&mut stream, 400, "{\"error\":\"missing query\"}");
             }
-            match crate::ai::chat(&mut crate::ai::ChatSession::new(None), &query, None) {
-                Ok(response) => write_json_response(&mut stream, 200, &format!("{{\"response\":\"{}\"}}", crate::util::json_escape(&response))),
-                Err(error) => write_json_response(&mut stream, 500, &format!("{{\"error\":\"{}\"}}", crate::util::json_escape(&error.to_string()))),
+            let model =
+                extract_json_string(&body, "model").filter(|value| !value.trim().is_empty());
+            let graph = load_graph(root)?;
+            let context = {
+                let ctx = ActionContext {
+                    root: root.as_path().to_path_buf(),
+                    graph,
+                    format: OutputFormat::Markdown,
+                };
+                let mut action_params = ActionParams::default();
+                action_params.positional.push(query.clone());
+                action_params
+                    .flags
+                    .insert("max-tokens".to_string(), "2200".to_string());
+                action_params
+                    .flags
+                    .insert("max-items".to_string(), "12".to_string());
+                registry
+                    .execute("context", &ctx, &action_params)
+                    .map(|result| result.stdout)
+                    .unwrap_or_default()
+            };
+            let mut session = crate::ai::ChatSession::new(model.as_deref());
+            match crate::ai::chat(&mut session, &query, Some(&context)) {
+                Ok(response) => write_json_response(
+                    &mut stream,
+                    200,
+                    &format!(
+                        "{{\"response\":\"{}\"}}",
+                        crate::util::json_escape(&response)
+                    ),
+                ),
+                Err(error) => write_json_response(
+                    &mut stream,
+                    500,
+                    &format!(
+                        "{{\"error\":\"{}\"}}",
+                        crate::util::json_escape(&error.to_string())
+                    ),
+                ),
             }
         }
         ("GET", "/api/v1/tasks") => {
@@ -552,20 +709,217 @@ fn handle_connection(
             let task_id = task.id.clone();
             let task_title = task.title.clone();
             let _ = crate::tasks::save_tasks(root, &board);
-            write_json_response(&mut stream, 200, &format!("{{\"id\":\"{}\",\"title\":\"{}\"}}", crate::util::json_escape(&task_id), crate::util::json_escape(&task_title)))
+            write_json_response(
+                &mut stream,
+                200,
+                &format!(
+                    "{{\"id\":\"{}\",\"title\":\"{}\"}}",
+                    crate::util::json_escape(&task_id),
+                    crate::util::json_escape(&task_title)
+                ),
+            )
+        }
+        ("POST", "/api/v1/tasks/status") => {
+            let body = extract_body(&request);
+            let id = extract_json_string(&body, "id").unwrap_or_default();
+            let status = extract_json_string(&body, "status").unwrap_or_default();
+            let Some(status) = crate::tasks::TaskStatus::parse(&status) else {
+                return write_json_response(
+                    &mut stream,
+                    400,
+                    "{\"error\":\"invalid task status\"}",
+                );
+            };
+            let mut board = crate::tasks::load_tasks(root);
+            match board.set_status(&id, status) {
+                Ok(()) => {
+                    crate::tasks::save_tasks(root, &board)?;
+                    write_json_response(&mut stream, 200, "{\"status\":\"updated\"}")
+                }
+                Err(error) => write_json_response(
+                    &mut stream,
+                    400,
+                    &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string())),
+                ),
+            }
+        }
+        ("POST", "/api/v1/tasks/remove") => {
+            let body = extract_body(&request);
+            let id = extract_json_string(&body, "id").unwrap_or_default();
+            let mut board = crate::tasks::load_tasks(root);
+            match board.remove(&id) {
+                Ok(()) => {
+                    crate::tasks::save_tasks(root, &board)?;
+                    write_json_response(&mut stream, 200, "{\"status\":\"removed\"}")
+                }
+                Err(error) => write_json_response(
+                    &mut stream,
+                    400,
+                    &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string())),
+                ),
+            }
+        }
+        ("GET", "/api/v1/skills") => {
+            let state_guard = state.lock().unwrap_or_else(|error| error.into_inner());
+            write_json_response(&mut stream, 200, &state_guard.skills.to_json())
+        }
+        ("POST", "/api/v1/skills/toggle") => {
+            let body = extract_body(&request);
+            let id = extract_json_string(&body, "id").unwrap_or_default();
+            let enabled = extract_json_bool(&body, "enabled").unwrap_or(false);
+            let mut state_guard = state.lock().unwrap_or_else(|error| error.into_inner());
+            let result = if enabled {
+                state_guard.skills.enable(&id)
+            } else {
+                state_guard.skills.disable(&id)
+            };
+            match result {
+                Ok(()) => {
+                    crate::skills::save_skill_registry(&state_guard.skills)?;
+                    let event_type = if enabled {
+                        EventType::SkillInstalled
+                    } else {
+                        EventType::SkillRemoved
+                    };
+                    state_guard.events.publish(&Event::new(event_type, &id, 0));
+                    write_json_response(
+                        &mut stream,
+                        200,
+                        &format!(
+                            "{{\"id\":\"{}\",\"enabled\":{}}}",
+                            json_escape(&id),
+                            enabled
+                        ),
+                    )
+                }
+                Err(error) => write_json_response(
+                    &mut stream,
+                    400,
+                    &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string())),
+                ),
+            }
+        }
+        ("GET", "/api/v1/mcp") => {
+            let mut state_guard = state.lock().unwrap_or_else(|error| error.into_inner());
+            state_guard.mcp.check_health();
+            write_json_response(&mut stream, 200, &state_guard.mcp.to_json())
+        }
+        ("POST", "/api/v1/mcp/register") => {
+            let body = extract_body(&request);
+            let name = extract_json_string(&body, "name").unwrap_or_default();
+            let command = extract_json_string(&body, "command").unwrap_or_default();
+            let args = split_command_args(&extract_json_string(&body, "args").unwrap_or_default());
+            let auto_start = extract_json_bool(&body, "auto_start").unwrap_or(false);
+            let mut state_guard = state.lock().unwrap_or_else(|error| error.into_inner());
+            let server_id =
+                match state_guard
+                    .mcp
+                    .register(&name, &command, args, BTreeMap::new(), auto_start)
+                {
+                    Ok(server) => server.id.clone(),
+                    Err(error) => {
+                        return write_json_response(
+                            &mut stream,
+                            400,
+                            &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string())),
+                        );
+                    }
+                };
+            crate::mcp_manager::save_mcp_manager(&state_guard.mcp)?;
+            if auto_start {
+                state_guard
+                    .events
+                    .publish(&Event::new(EventType::McpServerStarted, &server_id, 0));
+            }
+            write_json_response(
+                &mut stream,
+                200,
+                &format!("{{\"id\":\"{}\"}}", json_escape(&server_id)),
+            )
+        }
+        ("POST", "/api/v1/mcp/start")
+        | ("POST", "/api/v1/mcp/stop")
+        | ("POST", "/api/v1/mcp/remove") => {
+            let id = params.get("id").map_or("", String::as_str);
+            let mut state_guard = state.lock().unwrap_or_else(|error| error.into_inner());
+            let result = match path {
+                "/api/v1/mcp/start" => state_guard.mcp.start(id),
+                "/api/v1/mcp/stop" => state_guard.mcp.stop(id),
+                _ => state_guard.mcp.unregister(id),
+            };
+            match result {
+                Ok(()) => {
+                    crate::mcp_manager::save_mcp_manager(&state_guard.mcp)?;
+                    let event_type = if path == "/api/v1/mcp/start" {
+                        EventType::McpServerStarted
+                    } else {
+                        EventType::McpServerStopped
+                    };
+                    state_guard.events.publish(&Event::new(event_type, id, 0));
+                    write_json_response(&mut stream, 200, "{\"status\":\"ok\"}")
+                }
+                Err(error) => write_json_response(
+                    &mut stream,
+                    400,
+                    &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string())),
+                ),
+            }
+        }
+        ("GET", "/api/v1/settings") => {
+            let global = crate::settings::load_global_settings();
+            let workspace = crate::settings::load_workspace_settings(root);
+            let mut effective = global.clone();
+            effective.merge(&workspace);
+            let body = format!(
+                "{{\"global\":{},\"workspace\":{},\"effective\":{}}}",
+                global.to_json(),
+                workspace.to_json(),
+                effective.to_json()
+            );
+            write_json_response(&mut stream, 200, &body)
+        }
+        ("POST", "/api/v1/settings") => {
+            let body = extract_body(&request);
+            let key = extract_json_string(&body, "key").unwrap_or_default();
+            let value = extract_json_string(&body, "value").unwrap_or_default();
+            let scope =
+                extract_json_string(&body, "scope").unwrap_or_else(|| "workspace".to_string());
+            if key.trim().is_empty() {
+                return write_json_response(
+                    &mut stream,
+                    400,
+                    "{\"error\":\"missing setting key\"}",
+                );
+            }
+            if scope == "global" {
+                let mut settings = crate::settings::load_global_settings();
+                settings.set(&key, &value);
+                crate::settings::save_global_settings(&settings)?;
+            } else {
+                let mut settings = crate::settings::load_workspace_settings(root);
+                settings.set(&key, &value);
+                crate::settings::save_workspace_settings(root, &settings)?;
+            }
+            let mut state_guard = state.lock().unwrap_or_else(|error| error.into_inner());
+            state_guard
+                .events
+                .publish(&Event::new(EventType::SettingsChanged, "", 0).with_data("key", &key));
+            write_json_response(&mut stream, 200, "{\"status\":\"saved\"}")
         }
         ("GET", "/api/v1/github/status") => {
             let config = crate::github_integration::status(root);
             write_json_response(&mut stream, 200, &config.to_json())
         }
-        ("GET", "/api/v1/events") => {
-            handle_event_stream(&mut stream, state)
-        }
+        ("GET", "/api/v1/events") => handle_event_stream(&mut stream, state),
         ("POST", "/api/v1/actions") => {
             let body = extract_body(&request);
             let action_name = extract_json_string(&body, "action").unwrap_or_default();
             if action_name.is_empty() {
-                return write_json_response(&mut stream, 400, "{\"error\":\"missing action name\"}");
+                return write_json_response(
+                    &mut stream,
+                    400,
+                    "{\"error\":\"missing action name\"}",
+                );
             }
             let action_input = extract_json_object(&body, "input").unwrap_or_default();
             let mut action_params = parse_action_params(&action_input);
@@ -589,11 +943,121 @@ fn handle_connection(
                     );
                     write_json_response(&mut stream, 200, &response_body)
                 }
-                Err(error) => write_json_response(&mut stream, 500, &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string()))),
+                Err(error) => write_json_response(
+                    &mut stream,
+                    500,
+                    &format!("{{\"error\":\"{}\"}}", json_escape(&error.to_string())),
+                ),
             }
         }
         _ => write_json_response(&mut stream, 404, "{\"error\":\"not found\"}"),
     }
+}
+
+fn read_http_request(stream: &mut TcpStream) -> Result<Vec<u8>> {
+    const MAX_REQUEST_BYTES: usize = 1_048_576;
+    let mut request = Vec::new();
+    let mut buffer = [0_u8; 16_384];
+    let mut expected_total = None;
+    loop {
+        let count = stream.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        request.extend_from_slice(&buffer[..count]);
+        if request.len() > MAX_REQUEST_BYTES {
+            return Err(Error::Protocol("request exceeds 1 MiB limit".to_string()));
+        }
+        if expected_total.is_none() {
+            if let Some(header_end) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+                let header_bytes = &request[..header_end];
+                let headers = String::from_utf8_lossy(header_bytes);
+                let content_length = headers
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        if name.eq_ignore_ascii_case("content-length") {
+                            value.trim().parse::<usize>().ok()
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(0);
+                expected_total = Some(header_end + 4 + content_length);
+            }
+        }
+        if expected_total.is_some_and(|total| request.len() >= total) {
+            break;
+        }
+    }
+    if let Some(total) = expected_total {
+        request.truncate(total);
+    }
+    Ok(request)
+}
+
+fn resolve_active_root(default_root: &Path, state: &Arc<Mutex<ServerState>>) -> PathBuf {
+    let state_guard = state.lock().unwrap_or_else(|error| error.into_inner());
+    state_guard
+        .workspaces
+        .active()
+        .map(|workspace| PathBuf::from(&workspace.path))
+        .filter(|path| path.is_dir())
+        .unwrap_or_else(|| default_root.to_path_buf())
+}
+
+fn extract_json_bool(input: &str, key: &str) -> Option<bool> {
+    let needle = format!("\"{key}\"");
+    let position = input.find(&needle)?;
+    let after = &input[position + needle.len()..];
+    let colon = after.find(':')?;
+    let value = after[colon + 1..].trim_start();
+    if value.starts_with("true") {
+        Some(true)
+    } else if value.starts_with("false") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+fn split_command_args(input: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut quote = None;
+    let mut escaped = false;
+    for character in input.chars() {
+        if escaped {
+            current.push(character);
+            escaped = false;
+            continue;
+        }
+        if character == '\\' {
+            escaped = true;
+            continue;
+        }
+        if let Some(active_quote) = quote {
+            if character == active_quote {
+                quote = None;
+            } else {
+                current.push(character);
+            }
+            continue;
+        }
+        if matches!(character, '\'' | '"') {
+            quote = Some(character);
+        } else if character.is_whitespace() {
+            if !current.is_empty() {
+                args.push(std::mem::take(&mut current));
+            }
+        } else {
+            current.push(character);
+        }
+    }
+    if !current.is_empty() {
+        args.push(current);
+    }
+    args
 }
 
 fn is_localhost_request(peer: Option<std::net::SocketAddr>) -> bool {
@@ -606,7 +1070,11 @@ fn is_localhost_request(peer: Option<std::net::SocketAddr>) -> bool {
     }
 }
 
-fn check_authorization(request: &str, params: &BTreeMap<String, String>, state: &Arc<Mutex<ServerState>>) -> bool {
+fn check_authorization(
+    request: &str,
+    params: &BTreeMap<String, String>,
+    state: &Arc<Mutex<ServerState>>,
+) -> bool {
     let expected_token = {
         let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
         state_guard.config.bootstrap_token.clone()
@@ -614,9 +1082,10 @@ fn check_authorization(request: &str, params: &BTreeMap<String, String>, state: 
     if expected_token.is_empty() {
         return false;
     }
-    if let Some(auth_line) = request.lines().find(|line| {
-        line.to_ascii_lowercase().starts_with("authorization:")
-    }) {
+    if let Some(auth_line) = request
+        .lines()
+        .find(|line| line.to_ascii_lowercase().starts_with("authorization:"))
+    {
         let token = auth_line.split(':').nth(1).unwrap_or("").trim();
         if let Some(provided) = token.strip_prefix("Bearer ") {
             if constant_time_eq(provided.as_bytes(), expected_token.as_bytes()) {
@@ -707,9 +1176,14 @@ fn url_decode(value: &str) -> String {
     let mut index = 0;
     while index < bytes.len() {
         match bytes[index] {
-            b'+' => { output.push(b' '); index += 1; }
+            b'+' => {
+                output.push(b' ');
+                index += 1;
+            }
             b'%' if index + 2 < bytes.len() => {
-                if let (Some(high), Some(low)) = (hex_value(bytes[index + 1]), hex_value(bytes[index + 2])) {
+                if let (Some(high), Some(low)) =
+                    (hex_value(bytes[index + 1]), hex_value(bytes[index + 2]))
+                {
                     output.push((high << 4) | low);
                     index += 3;
                 } else {
@@ -717,7 +1191,10 @@ fn url_decode(value: &str) -> String {
                     index += 1;
                 }
             }
-            byte => { output.push(byte); index += 1; }
+            byte => {
+                output.push(byte);
+                index += 1;
+            }
         }
     }
     String::from_utf8_lossy(&output).to_string()
@@ -754,8 +1231,13 @@ fn extract_json_string(input: &str, key: &str) -> Option<String> {
     let bytes = trimmed.as_bytes();
     let mut end = start;
     while end < bytes.len() {
-        if bytes[end] == b'\\' { end += 2; continue; }
-        if bytes[end] == b'"' { break; }
+        if bytes[end] == b'\\' {
+            end += 2;
+            continue;
+        }
+        if bytes[end] == b'"' {
+            break;
+        }
         end += 1;
     }
     Some(trimmed[start..end].to_string())
@@ -787,7 +1269,9 @@ fn extract_json_object(input: &str, key: &str) -> Option<String> {
             b'"' => {
                 idx += 1;
                 while idx < bytes.len() && bytes[idx] != b'"' {
-                    if bytes[idx] == b'\\' { idx += 1; }
+                    if bytes[idx] == b'\\' {
+                        idx += 1;
+                    }
                     idx += 1;
                 }
             }
@@ -873,8 +1357,12 @@ fn parse_json_number(input: &str, start: usize) -> (i64, usize) {
     let bytes = input.as_bytes();
     let mut idx = start;
     let s = idx;
-    if idx < bytes.len() && bytes[idx] == b'-' { idx += 1; }
-    while idx < bytes.len() && bytes[idx].is_ascii_digit() { idx += 1; }
+    if idx < bytes.len() && bytes[idx] == b'-' {
+        idx += 1;
+    }
+    while idx < bytes.len() && bytes[idx].is_ascii_digit() {
+        idx += 1;
+    }
     let value = input[s..idx].parse().unwrap_or(0);
     (value, idx)
 }
@@ -888,12 +1376,17 @@ fn skip_ws(bytes: &[u8], mut idx: usize) -> usize {
 
 fn write_json_response(stream: &mut TcpStream, status: u16, body: &str) -> Result<()> {
     let reason = match status {
-        200 => "OK", 400 => "Bad Request", 401 => "Unauthorized", 403 => "Forbidden",
-        404 => "Not Found", 413 => "Payload Too Large", 500 => "Internal Server Error",
+        200 => "OK",
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        403 => "Forbidden",
+        404 => "Not Found",
+        413 => "Payload Too Large",
+        500 => "Internal Server Error",
         _ => "Error",
     };
     let response = format!(
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nCache-Control: no-store\r\nAccess-Control-Allow-Origin: http://localhost\r\n\r\n{body}",
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\nCache-Control: no-store\r\nAccess-Control-Allow-Origin: http://localhost\r\n\r\n{body}",
         body.len()
     );
     stream.write_all(response.as_bytes()).map_err(Error::Io)
@@ -901,10 +1394,11 @@ fn write_json_response(stream: &mut TcpStream, status: u16, body: &str) -> Resul
 
 fn write_html_response(stream: &mut TcpStream, status: u16, body: &str) -> Result<()> {
     let reason = match status {
-        200 => "OK", _ => "Error",
+        200 => "OK",
+        _ => "Error",
     };
     let response = format!(
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nCache-Control: no-store\r\nAccess-Control-Allow-Origin: http://localhost\r\n\r\n{body}",
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'\r\nCache-Control: no-store\r\nAccess-Control-Allow-Origin: http://localhost\r\n\r\n{body}",
         body.len()
     );
     stream.write_all(response.as_bytes()).map_err(Error::Io)
@@ -912,7 +1406,7 @@ fn write_html_response(stream: &mut TcpStream, status: u16, body: &str) -> Resul
 
 fn write_asset_response(stream: &mut TcpStream, content_type: &str, body: &str) -> Result<()> {
     let response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nCache-Control: no-cache\r\nAccess-Control-Allow-Origin: http://localhost\r\n\r\n{body}",
+        "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\nCache-Control: no-cache\r\nAccess-Control-Allow-Origin: http://localhost\r\n\r\n{body}",
         body.len()
     );
     stream.write_all(response.as_bytes()).map_err(Error::Io)

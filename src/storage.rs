@@ -1,4 +1,6 @@
-use crate::model::{Decision, Edge, EdgeKind, Error, FileRecord, GraphIndex, Result, Symbol, SymbolKind};
+use crate::model::{
+    Decision, Edge, EdgeKind, Error, FileRecord, GraphIndex, Result, Symbol, SymbolKind,
+};
 use crate::util::{escape_field, index_dir, index_path, lock_path, now_unix_ms, split_escaped_tsv};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Write};
@@ -209,7 +211,6 @@ pub fn save(root: &Path, graph: &GraphIndex) -> Result<()> {
     Ok(())
 }
 
-
 fn backup_path(path: &Path) -> PathBuf {
     path.with_extension("csf.bak")
 }
@@ -322,7 +323,10 @@ fn parse_file(graph: &mut GraphIndex, fields: &[String], line: usize) -> Result<
 fn parse_symbol(graph: &mut GraphIndex, fields: &[String], line: usize) -> Result<()> {
     require_fields(fields, 11, line)?;
     let kind = SymbolKind::parse(&fields[5]).ok_or_else(|| {
-        Error::CorruptIndex(format!("invalid symbol kind `{}` at line {line}", fields[5]))
+        Error::CorruptIndex(format!(
+            "invalid symbol kind `{}` at line {line}",
+            fields[5]
+        ))
     })?;
     let symbol = Symbol {
         id: parse_number(&fields[1], line, "symbol.id")?,
@@ -397,9 +401,9 @@ where
     T: std::str::FromStr,
     T::Err: std::fmt::Display,
 {
-    value.parse::<T>().map_err(|error| {
-        Error::CorruptIndex(format!("invalid {field} at line {line}: {error}"))
-    })
+    value
+        .parse::<T>()
+        .map_err(|error| Error::CorruptIndex(format!("invalid {field} at line {line}: {error}")))
 }
 
 #[cfg(test)]
@@ -424,7 +428,11 @@ mod tests {
         fs::rename(&path, &backup)
             .unwrap_or_else(|error| panic!("simulate interrupted replacement: {error}"));
         let actions = repair(&root).unwrap_or_else(|error| panic!("repair backup: {error}"));
-        assert!(actions.iter().any(|action| action.contains("restored backup index")));
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.contains("restored backup index"))
+        );
         load(&root).unwrap_or_else(|error| panic!("load repaired graph: {error}"));
         let _ = fs::remove_dir_all(root);
     }

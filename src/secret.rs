@@ -37,14 +37,10 @@ pub fn redact_secrets(input: &str) -> RedactionResult {
 }
 
 fn redact_line(line: &str) -> (String, usize) {
-
     let mut output = line.to_string();
     let mut count = 0;
     for prefix in ["sk-", "sk-proj-", "ghp_", "github_pat_", "AKIA", "ASIA"] {
-        loop {
-            let Some(start) = find_token_prefix(&output, prefix) else {
-                break;
-            };
+        while let Some(start) = find_token_prefix(&output, prefix) {
             let end = token_end(&output, start);
             if end.saturating_sub(start) < prefix.len() + 8 {
                 break;
@@ -66,7 +62,7 @@ fn redact_line(line: &str) -> (String, usize) {
         "passwd",
     ] {
         if let Some(position) = lower.find(marker) {
-            if let Some(separator_offset) = output[position..].find(|character| character == '=' || character == ':') {
+            if let Some(separator_offset) = output[position..].find(['=', ':']) {
                 let value_start = position + separator_offset + 1;
                 let tail = output[value_start..].trim();
                 if tail.len() >= 8 && !tail.starts_with("[REDACTED") {

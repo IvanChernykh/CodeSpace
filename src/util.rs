@@ -44,9 +44,9 @@ pub fn lock_path(root: &Path) -> PathBuf {
 }
 
 pub fn normalized_relative(root: &Path, path: &Path) -> Result<String> {
-    let relative = path
-        .strip_prefix(root)
-        .map_err(|_| Error::InvalidArgument(format!("path escapes project root: {}", path.display())))?;
+    let relative = path.strip_prefix(root).map_err(|_| {
+        Error::InvalidArgument(format!("path escapes project root: {}", path.display()))
+    })?;
     let mut parts = Vec::new();
     for component in relative.components() {
         match component {
@@ -275,7 +275,9 @@ pub fn read_ignore_patterns(root: &Path) -> Vec<String> {
                 content
                     .lines()
                     .map(str::trim)
-                    .filter(|line| !line.is_empty() && !line.starts_with('#') && !line.starts_with('!'))
+                    .filter(|line| {
+                        !line.is_empty() && !line.starts_with('#') && !line.starts_with('!')
+                    })
                     .map(ToOwned::to_owned),
             );
         }
@@ -283,24 +285,29 @@ pub fn read_ignore_patterns(root: &Path) -> Vec<String> {
     patterns
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn matches_nested_ignored_directories() {
-        assert!(path_matches_pattern("apps/web/node_modules/pkg/index.js", "node_modules/"));
+        assert!(path_matches_pattern(
+            "apps/web/node_modules/pkg/index.js",
+            "node_modules/"
+        ));
         assert!(path_matches_pattern("nested/.git/config", ".git/"));
-        assert!(!path_matches_pattern("src/node_modules_helper.rs", "node_modules/"));
+        assert!(!path_matches_pattern(
+            "src/node_modules_helper.rs",
+            "node_modules/"
+        ));
     }
 
     #[test]
     fn escapes_round_trip() {
         let original = "a\tb\nc\\d";
         let escaped = escape_field(original);
-        let restored = unescape_field(&escaped)
-            .unwrap_or_else(|error| panic!("unescape field: {error}"));
+        let restored =
+            unescape_field(&escaped).unwrap_or_else(|error| panic!("unescape field: {error}"));
         assert_eq!(restored, original);
     }
 }

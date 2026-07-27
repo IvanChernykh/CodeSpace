@@ -19,7 +19,9 @@ impl Display for Error {
         match self {
             Self::Io(error) => write!(f, "I/O error: {error}"),
             Self::InvalidArgument(message) => write!(f, "invalid argument: {message}"),
-            Self::NotInitialized(path) => write!(f, "project is not initialized: {}", path.display()),
+            Self::NotInitialized(path) => {
+                write!(f, "project is not initialized: {}", path.display())
+            }
             Self::CorruptIndex(message) => write!(f, "corrupt index: {message}"),
             Self::Git(message) => write!(f, "git error: {message}"),
             Self::Protocol(message) => write!(f, "protocol error: {message}"),
@@ -169,9 +171,10 @@ pub struct Symbol {
     pub complexity: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PrecisionTier {
     Exact,
+    #[default]
     Parser,
     Heuristic,
     Inferred,
@@ -195,12 +198,6 @@ impl PrecisionTier {
             "inferred" => Some(Self::Inferred),
             _ => None,
         }
-    }
-}
-
-impl Default for PrecisionTier {
-    fn default() -> Self {
-        Self::Parser
     }
 }
 

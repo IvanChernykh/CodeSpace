@@ -26,8 +26,8 @@ pub mod tasks;
 pub mod util;
 pub mod workspace;
 
-pub use context::{build_context, ContextOptions};
-pub use indexer::{build as build_index, IndexOptions};
+pub use context::{ContextOptions, build_context};
+pub use indexer::{IndexOptions, build as build_index};
 pub use model::{ContextBundle, GraphIndex, ImpactReport, Result, SearchHit, Symbol};
 pub use search::find_symbols;
 pub use storage::{load as load_index, save as save_index};

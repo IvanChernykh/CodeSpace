@@ -77,7 +77,10 @@ impl ChatSession {
 
 pub fn detect_language(text: &str) -> &'static str {
     let lower = text.to_lowercase();
-    let ru_chars = lower.chars().filter(|c| "абвгдеёжзийклмнопрстуфхцчшщъыьэюя".contains(*c)).count();
+    let ru_chars = lower
+        .chars()
+        .filter(|c| "абвгдеёжзийклмнопрстуфхцчшщъыьэюя".contains(*c))
+        .count();
     let total_chars = lower.chars().filter(|c| c.is_alphabetic()).count();
     if total_chars > 0 && ru_chars * 3 > total_chars {
         "ru"
@@ -93,11 +96,7 @@ pub fn system_prompt(language: &str) -> &'static str {
     }
 }
 
-pub fn chat(
-    session: &mut ChatSession,
-    user_input: &str,
-    context: Option<&str>,
-) -> Result<String> {
+pub fn chat(session: &mut ChatSession, user_input: &str, context: Option<&str>) -> Result<String> {
     let lang = detect_language(user_input);
     session.language = lang.to_string();
 
@@ -176,7 +175,9 @@ pub fn list_models() -> Result<Vec<String>> {
 
 pub fn ensure_model() -> Result<bool> {
     let models = list_models()?;
-    let has_model = models.iter().any(|m| m.contains("qwen2.5-coder") || m.contains("1.5b"));
+    let has_model = models
+        .iter()
+        .any(|m| m.contains("qwen2.5-coder") || m.contains("1.5b"));
     Ok(has_model)
 }
 
@@ -196,9 +197,11 @@ fn ollama_http(method: &str, path: &str, body: &str) -> Result<String> {
             .map_err(|e| Error::InvalidArgument(format!("invalid address: {e}")))?,
         Duration::from_secs(5),
     )
-    .map_err(|e| Error::InvalidArgument(format!(
-        "cannot connect to Ollama at {address}; is `ollama serve` running? ({e})"
-    )))?;
+    .map_err(|e| {
+        Error::InvalidArgument(format!(
+            "cannot connect to Ollama at {address}; is `ollama serve` running? ({e})"
+        ))
+    })?;
 
     stream.set_read_timeout(Some(Duration::from_secs(120)))?;
     stream.set_write_timeout(Some(Duration::from_secs(10)))?;
@@ -307,7 +310,10 @@ pub fn load_session(id: &str) -> Result<ChatSession> {
             extract_json_string(after, "role"),
             extract_json_string(after, "content"),
         ) {
-            session.messages.push(ChatMessage { role, content: content_val });
+            session.messages.push(ChatMessage {
+                role,
+                content: content_val,
+            });
         }
         search = &after[6..];
     }
@@ -331,7 +337,7 @@ pub fn list_sessions() -> Result<Vec<(String, u128)>> {
             sessions.push((id.to_string(), ts));
         }
     }
-    sessions.sort_by(|a, b| b.1.cmp(&a.1));
+    sessions.sort_by_key(|item| std::cmp::Reverse(item.1));
     Ok(sessions)
 }
 

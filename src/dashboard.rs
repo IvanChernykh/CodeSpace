@@ -1,371 +1,337 @@
+use crate::util::json_escape;
+
 pub fn render_dashboard(token: &str) -> String {
+    let safe_token = json_escape(token);
     format!(
-        r#"<!doctype html>
+        r##"<!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>CodeSpace Smart AI</title>
-<link rel="stylesheet" href="/assets/dashboard.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#07090f">
+  <meta name="cse-session" content="{safe_token}">
+  <title>CodeSpace — IDE Assistant</title>
+  <link rel="stylesheet" href="/assets/dashboard.css">
 </head>
 <body>
-<header class="app-header">
-  <div class="app-logo">CodeSpace<span>Smart AI</span></div>
-  <div class="header-spacer"></div>
-  <select id="workspaceSelect" class="header-select" aria-label="Workspace">
-    <option value="">Loading workspaces...</option>
-  </select>
-  <button id="paletteTrigger" class="icon-button" title="Command palette (Ctrl+K)" aria-label="Command palette">Cmd K</button>
-  <button id="doctorBtn" class="secondary-button" title="Run doctor check">Doctor</button>
-  <button id="updateIndexBtn" class="primary-button">Update Index</button>
-  <div class="status-cluster">
-    <span id="statusDot" class="status-dot is-offline"></span>
-    <span id="statusText">Connecting...</span>
+  <div class="app-shell">
+    <aside class="sidebar-nav" aria-label="Primary navigation">
+      <div class="brand">
+        <div class="brand-mark">CS</div>
+        <div class="brand-copy"><strong>CodeSpace</strong><span>IDE Assistant</span></div>
+      </div>
+      <div class="nav-scroll">
+        <div class="nav-section">
+          <span class="nav-label">Workspace</span>
+          <button class="nav-item is-active" data-nav="overview"><span class="nav-icon">⌂</span><span>Command Center</span></button>
+          <button class="nav-item" data-nav="graph"><span class="nav-icon">⌘</span><span>Repository Map</span></button>
+          <button class="nav-item" data-nav="context"><span class="nav-icon">{{ }}</span><span>Context Builder</span></button>
+          <button class="nav-item" data-nav="impact"><span class="nav-icon">↗</span><span>Impact Analysis</span></button>
+          <button class="nav-item" data-nav="history"><span class="nav-icon">◷</span><span>Decision Memory</span></button>
+        </div>
+        <div class="nav-section">
+          <span class="nav-label">Assistant</span>
+          <button class="nav-item" data-nav="assistant"><span class="nav-icon">✦</span><span>IDE Assistant</span></button>
+          <button class="nav-item" data-nav="tasks"><span class="nav-icon">✓</span><span>Engineering Tasks</span></button>
+          <button class="nav-item" data-nav="skills"><span class="nav-icon">◇</span><span>Skills</span></button>
+          <button class="nav-item" data-nav="mcp"><span class="nav-icon">⇄</span><span>MCP Control</span></button>
+        </div>
+        <div class="nav-section">
+          <span class="nav-label">System</span>
+          <button class="nav-item" data-nav="workspaces"><span class="nav-icon">▦</span><span>Repositories</span></button>
+          <button class="nav-item" data-nav="github"><span class="nav-icon">GH</span><span>GitHub</span></button>
+          <button class="nav-item" data-nav="settings"><span class="nav-icon">⚙</span><span>Settings</span></button>
+        </div>
+      </div>
+      <div class="sidebar-footer">
+        <div class="runtime-row"><span>Runtime</span><code id="runtimeVersion">v—</code></div>
+        <div class="local-only">Localhost only</div>
+      </div>
+    </aside>
+
+    <div class="main-shell">
+      <header class="topbar">
+        <div class="page-heading"><h1 id="pageTitle">Command Center</h1><p id="pageSubtitle">Runtime, index, and repository health</p></div>
+        <label class="global-search">
+          <input id="globalSearch" type="search" autocomplete="off" placeholder="Find a file, symbol, action…">
+          <span class="keycap">Ctrl K</span>
+        </label>
+        <div class="topbar-actions">
+          <select id="workspaceSelect" class="workspace-select" aria-label="Active repository"><option>Current directory</option></select>
+          <button id="doctorBtn" class="button ghost">Doctor</button>
+          <button id="updateIndexBtn" class="button primary">Update Index</button>
+          <div class="connection-wrap">
+            <div id="connectionChip" class="connection-chip" data-state="starting"><span id="connectionLabel">Starting</span></div>
+            <div id="connectionDetail" class="connection-detail">Starting local runtime</div>
+          </div>
+        </div>
+      </header>
+
+      <main class="content">
+        <section class="view is-active" data-view="overview">
+          <div class="overview-grid">
+            <article class="surface hero-repository">
+              <div class="hero-copy">
+                <span class="eyebrow">Local-first repository intelligence</span>
+                <h2>Understand the codebase as a <span>connected system</span>, not a folder tree.</h2>
+                <p>CodeSpace unifies the CLI, localhost dashboard, MCP tools, skills, decisions, tasks, and local AI around one indexed repository state.</p>
+                <div class="repository-identity">
+                  <div class="repo-avatar">R</div>
+                  <div><strong id="activeRepositoryName">Current directory</strong><code id="activeRepositoryPath">Loading active repository…</code></div>
+                </div>
+              </div>
+            </article>
+
+            <article class="surface quick-actions">
+              <div class="surface-header"><div><h3>Start here</h3><p>Common engineering workflows</p></div></div>
+              <div class="surface-body">
+                <button class="quick-action" data-quick-tab="graph"><span class="quick-action-icon">⌘</span><span><strong>Explore repository</strong><small>Open the file dependency map</small></span><span>→</span></button>
+                <button class="quick-action" data-quick-tab="context"><span class="quick-action-icon">{{ }}</span><span><strong>Build AI context</strong><small>Retrieve only relevant source</small></span><span>→</span></button>
+                <button class="quick-action" data-quick-tab="impact"><span class="quick-action-icon">↗</span><span><strong>Analyze a change</strong><small>Estimate propagation and risk</small></span><span>→</span></button>
+              </div>
+            </article>
+
+            <article class="surface metric-card"><div class="metric-top"><span>Files</span><span class="metric-icon">▦</span></div><strong id="metricFiles">0</strong><small>indexed repository files</small></article>
+            <article class="surface metric-card"><div class="metric-top"><span>Symbols</span><span class="metric-icon">ƒ</span></div><strong id="metricSymbols">0</strong><small>functions, types, modules, tests</small></article>
+            <article class="surface metric-card"><div class="metric-top"><span>Relationships</span><span class="metric-icon">⇄</span></div><strong id="metricEdges">0</strong><small>calls, imports, dependencies</small></article>
+            <article class="surface metric-card"><div class="metric-top"><span>Revision</span><span class="metric-icon">#</span></div><strong id="metricRevision">r0</strong><small id="metricUpdated">not indexed</small></article>
+
+            <article class="surface health-panel">
+              <div class="surface-header"><div><h3>System health</h3><p>Operational status of the local assistant</p></div></div>
+              <div class="surface-body health-list">
+                <div class="health-row" data-tone="warning"><span>Semantic index</span><strong id="indexHealthText">Checking…</strong></div>
+                <div class="health-row" data-tone="success"><span>Source boundary</span><strong>Local filesystem</strong></div>
+                <div class="health-row" data-tone="success"><span>API exposure</span><strong>127.0.0.1 only</strong></div>
+                <div class="health-row"><span>Live synchronization</span><strong>SSE + health polling</strong></div>
+              </div>
+            </article>
+            <article class="surface languages-panel">
+              <div class="surface-header"><div><h3>Languages</h3><p>Indexed file distribution</p></div></div>
+              <div id="languageBreakdown" class="surface-body"></div>
+            </article>
+            <article class="surface delivery-panel">
+              <div class="surface-header"><div><h3>Interfaces</h3><p>One core, multiple clients</p></div></div>
+              <div class="surface-body delivery-stack">
+                <div class="delivery-item"><span>Terminal</span><strong>cse CLI</strong></div>
+                <div class="delivery-item"><span>IDE agents</span><strong>MCP tools</strong></div>
+                <div class="delivery-item"><span>Browser</span><strong>localhost dashboard</strong></div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="view graph-view" data-view="graph">
+          <div class="graph-layout">
+            <div class="graph-stage">
+              <div class="graph-toolbar">
+                <label class="search-field"><input id="graphFilter" type="search" placeholder="Filter files or languages…"></label>
+                <button id="graphFitBtn" class="button ghost small">Fit</button>
+                <button id="graphReloadBtn" class="button ghost small">Reload</button>
+                <div class="toolbar-meta"><span id="graphVisibleCount" class="meta-chip">0 files</span><span id="graphEdgeCount" class="meta-chip">0 links</span><span id="graphRevision" class="meta-chip">revision 0</span></div>
+              </div>
+              <div class="graph-canvas">
+                <div id="graphEmpty" class="graph-empty"><strong>Building repository map</strong><span>Loading indexed files and relationships…</span></div>
+                <svg id="fileGraphSvg" class="is-hidden" xmlns="http://www.w3.org/2000/svg" aria-label="Repository file dependency network"></svg>
+              </div>
+            </div>
+            <aside id="fileInspector" class="graph-inspector"><div class="empty-state compact"><span class="empty-icon">◇</span><strong>Select a file</strong><span>Inspect symbols and relationships.</span></div></aside>
+          </div>
+        </section>
+
+        <section class="view" data-view="context">
+          <div class="panel-page">
+            <div class="panel-intro"><div><span class="eyebrow">Retrieval</span><h2>Context Builder</h2><p>Create a compact source bundle for IDE agents and local models. Results are bounded by token and item limits and pass through secret redaction.</p></div></div>
+            <form id="contextForm" class="surface surface-body form-grid">
+              <div class="field wide"><label for="contextQuery">Question, symbol, or file</label><input id="contextQuery" type="text" placeholder="How does workspace selection affect graph loading?" required></div>
+              <div class="field"><label for="contextTokens">Token budget</label><input id="contextTokens" type="number" min="100" max="32000" value="1600"></div>
+              <div class="field"><label for="contextItems">Maximum items</label><input id="contextItems" type="number" min="1" max="50" value="10"></div>
+              <div class="form-actions"><button class="button primary" type="submit">Build Context</button></div>
+            </form>
+            <div id="contextResults" class="results"></div>
+          </div>
+        </section>
+
+        <section class="view" data-view="impact">
+          <div class="panel-page">
+            <div class="panel-intro"><div><span class="eyebrow">Change intelligence</span><h2>Impact Analysis</h2><p>Compare Git revisions and trace potentially affected symbols through the repository graph before making or merging a change.</p></div></div>
+            <form id="impactForm" class="surface surface-body form-grid">
+              <div class="field"><label for="impactFrom">From revision</label><input id="impactFrom" value="HEAD~1"></div>
+              <div class="field"><label for="impactTo">To revision</label><input id="impactTo" value="HEAD"></div>
+              <div class="field"><label for="impactDepth">Traversal depth</label><input id="impactDepth" type="number" min="1" max="10" value="3"></div>
+              <div class="form-actions"><button class="button primary" type="submit">Analyze Impact</button></div>
+            </form>
+            <div id="impactResults" class="results"></div>
+          </div>
+        </section>
+
+        <section class="view assistant-view" data-view="assistant">
+          <div class="assistant-layout">
+            <div class="chat-shell">
+              <div id="assistantMessages" class="chat-messages">
+                <div class="chat-welcome">
+                  <div class="assistant-orb">✦</div>
+                  <h2>Repository-aware local assistant</h2>
+                  <p>Ask about architecture, debugging, refactoring, security, tests, and implementation. The backend supplies indexed repository context to the local model.</p>
+                  <div class="prompt-grid">
+                    <button class="prompt-card" type="button">Explain the current architecture and its weakest boundary.</button>
+                    <button class="prompt-card" type="button">Find likely security risks in the local HTTP server.</button>
+                    <button class="prompt-card" type="button">Plan a safe refactor for the dashboard state layer.</button>
+                    <button class="prompt-card" type="button">Identify missing tests for workspace synchronization.</button>
+                  </div>
+                </div>
+              </div>
+              <form id="assistantForm" class="chat-composer">
+                <div class="composer-box"><textarea id="assistantInput" placeholder="Ask CodeSpace about this repository…" required></textarea><button class="button primary" type="submit">Send</button></div>
+                <div class="composer-footer"><span>Local Ollama endpoint · source stays on this machine</span><input id="assistantModel" value="qwen2.5-coder:1.5b-instruct-q4_K_M" aria-label="Ollama model"></div>
+              </form>
+            </div>
+            <aside class="assistant-context">
+              <span class="eyebrow">Active context</span>
+              <div class="context-card"><span>Repository</span><strong id="assistantRepository">Selected workspace</strong><p>Uses the same active root as CLI and MCP.</p></div>
+              <div class="context-card"><span>Index policy</span><strong>Secret-redacted</strong><p>Generated and vendor directories are excluded.</p></div>
+              <div class="context-card"><span>Model runtime</span><strong>Ollama localhost</strong><p>Configure the model in the composer footer.</p></div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="view" data-view="tasks">
+          <div class="panel-page">
+            <div class="panel-intro"><div><span class="eyebrow">Execution</span><h2>Engineering Tasks</h2><p>Track work next to repository state. Task mutations are available through the same local API used by the CLI and dashboard.</p></div></div>
+            <form id="taskForm" class="surface surface-body form-grid task-controls">
+              <div class="field"><label>Title</label><input name="title" placeholder="Fix workspace root resolution" required></div>
+              <div class="field wide"><label>Description</label><input name="description" placeholder="Expected behavior and acceptance criteria"></div>
+              <div class="field"><label>Priority</label><select name="priority"><option>low</option><option selected>medium</option><option>high</option><option>critical</option></select></div>
+              <div class="field"><label>Tags</label><input name="tags" placeholder="backend,stability"></div>
+              <div class="form-actions"><button class="button primary" type="submit">Create Task</button></div>
+            </form>
+            <div id="taskBoard" class="task-board"></div>
+          </div>
+        </section>
+
+        <section class="view" data-view="history">
+          <div class="panel-page">
+            <div class="panel-intro"><div><span class="eyebrow">Durable project memory</span><h2>Decision Memory</h2><p>Record why architecture and implementation choices were made, then retrieve them through CLI, MCP, and the dashboard.</p></div></div>
+            <div class="decision-layout">
+              <div>
+                <form id="historySearchForm" class="surface surface-body form-grid"><div class="field wide"><label>Search decisions</label><input id="historyQuery" placeholder="workspace, security, dashboard…"></div><div class="form-actions"><button class="button ghost" type="submit">Search</button></div></form>
+                <div id="historyResults" class="results"></div>
+              </div>
+              <form id="rememberForm" class="surface surface-body form-grid">
+                <div class="field full"><label>Decision summary</label><textarea name="summary" placeholder="What was decided?" required></textarea></div>
+                <div class="field full"><label>Rationale</label><textarea name="rationale" placeholder="Why was this choice made?"></textarea></div>
+                <div class="field full"><label>File</label><input name="file" placeholder="src/server.rs"></div>
+                <div class="field full"><label>Symbol</label><input name="symbol" placeholder="handle_connection"></div>
+                <div class="field full"><label>Tags</label><input name="tags" placeholder="architecture,security"></div>
+                <div class="form-actions"><button class="button primary" type="submit">Remember</button></div>
+              </form>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" data-view="workspaces">
+          <div class="panel-page">
+            <div class="panel-intro"><div><span class="eyebrow">Workspace manager</span><h2>Repositories</h2><p>Register and switch local repositories. Every dashboard API request resolves the active workspace before executing a core action.</p></div></div>
+            <div id="workspaceList" class="workspace-list"></div>
+            <form id="workspaceForm" class="surface surface-body form-grid" style="margin-top:14px">
+              <div class="field wide"><label>Local directory path</label><input name="path" placeholder="/home/user/projects/service" required></div>
+              <div class="field"><label>Display name</label><input name="name" placeholder="Service API"></div>
+              <div class="form-actions"><button class="button primary" type="submit">Register Repository</button></div>
+            </form>
+          </div>
+        </section>
+
+        <section class="view" data-view="skills">
+          <div class="panel-page">
+            <div class="panel-intro"><div><span class="eyebrow">Capability platform</span><h2>Skills</h2><p>Enable trusted, permission-scoped capabilities for security, design, engineering, testing, documentation, and repository analysis.</p></div><div class="status-pill">Pinned sources only</div></div>
+            <div id="skillsGrid" class="skills-grid"></div>
+          </div>
+        </section>
+
+        <section class="view" data-view="mcp">
+          <div class="panel-page">
+            <div class="panel-intro"><div><span class="eyebrow">Protocol control plane</span><h2>MCP Control</h2><p>Register, start, stop, and inspect local MCP server processes. Environment values remain server-side and are never returned to the browser.</p></div></div>
+            <div id="mcpList" class="mcp-list"></div>
+            <form id="mcpForm" class="surface surface-body form-grid" style="margin-top:14px">
+              <div class="field"><label>Name</label><input name="name" placeholder="filesystem-tools" required></div>
+              <div class="field"><label>Command</label><input name="command" placeholder="npx" required></div>
+              <div class="field wide"><label>Arguments</label><input name="args" placeholder="-y @modelcontextprotocol/server-filesystem /workspace"></div>
+              <div class="field"><label><input name="auto_start" type="checkbox"> Start automatically</label></div>
+              <div class="form-actions"><button class="button primary" type="submit">Register MCP Server</button></div>
+            </form>
+          </div>
+        </section>
+
+        <section class="view" data-view="settings">
+          <div class="panel-page">
+            <div class="panel-intro"><div><span class="eyebrow">Configuration</span><h2>Settings</h2><p>Workspace settings override global settings. All changes are persisted by the backend and broadcast as synchronization events.</p></div></div>
+            <div class="settings-layout">
+              <div id="settingsTable" class="surface surface-body"></div>
+              <form id="settingForm" class="surface surface-body form-grid">
+                <div class="field full"><label>Key</label><input name="key" placeholder="dashboard.graph.max_files" required></div>
+                <div class="field full"><label>Value</label><input name="value" placeholder="260"></div>
+                <div class="field full"><label>Scope</label><select name="scope"><option value="workspace">workspace</option><option value="global">global</option></select></div>
+                <div class="form-actions"><button class="button primary" type="submit">Save Setting</button></div>
+              </form>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" data-view="github">
+          <div class="panel-page">
+            <div class="panel-intro"><div><span class="eyebrow">Delivery integration</span><h2>GitHub</h2><p>Inspect the local GitHub connection without exposing credentials to page JavaScript.</p></div></div>
+            <div id="githubPanel"></div>
+          </div>
+        </section>
+      </main>
+    </div>
   </div>
-</header>
 
-<nav class="tab-bar" role="tablist">
-  <div class="tab is-active" data-tab="graph" role="tab" tabindex="0">Graph</div>
-  <div class="tab" data-tab="context" role="tab" tabindex="0">Context</div>
-  <div class="tab" data-tab="impact" role="tab" tabindex="0">Impact</div>
-  <div class="tab" data-tab="history" role="tab" tabindex="0">History</div>
-  <div class="tab" data-tab="ai" role="tab" tabindex="0">AI Chat</div>
-  <div class="tab" data-tab="tasks" role="tab" tabindex="0">Tasks</div>
-  <div class="tab" data-tab="github" role="tab" tabindex="0">GitHub</div>
-  <div class="tab" data-tab="workspaces" role="tab" tabindex="0">Workspaces</div>
-</nav>
-
-<main class="app-main">
-  <aside id="sidebar" class="sidebar">
-    <div class="sidebar-header">
-      <h3>Symbols <span class="sidebar-count" data-sidebar-count>0</span></h3>
-    </div>
-    <input class="sidebar-search" data-sidebar-filter type="text" placeholder="Filter symbols..." aria-label="Filter symbols">
-    <div class="sidebar-chips" data-sidebar-chips></div>
-    <ul class="sidebar-list" data-sidebar-list></ul>
-  </aside>
-
-  <section class="center-panel">
-    <div class="canvas-area" data-panel="graph">
-      <div id="graphEmptyState" class="graph-empty">Loading graph...</div>
-      <svg id="graphSvg" style="display:none" xmlns="http://www.w3.org/2000/svg"></svg>
-      <div class="edge-filters">
-        <label><input type="checkbox" data-edge-filter="calls" checked> calls</label>
-        <label><input type="checkbox" data-edge-filter="imports" checked> imports</label>
-        <label><input type="checkbox" data-edge-filter="contains" checked> contains</label>
-        <label><input type="checkbox" data-edge-filter="test-covers" checked> test-covers</label>
-        <label><input type="checkbox" data-edge-filter="depends-on" checked> depends-on</label>
-      </div>
-    </div>
-
-    <div class="panel" data-panel="context">
-      <div class="panel-form">
-        <div class="form-field grow">
-          <label for="contextQuery">Query</label>
-          <input id="contextQuery" data-context-query type="text" placeholder="Symbol name, file path, or question...">
-        </div>
-        <div class="form-field">
-          <label for="contextTokens">Max tokens</label>
-          <input id="contextTokens" data-context-tokens type="number" value="1200" min="100" max="32000" style="width:90px">
-        </div>
-        <div class="form-field">
-          <label for="contextItems">Max items</label>
-          <input id="contextItems" data-context-items type="number" value="8" min="1" max="50" style="width:70px">
-        </div>
-        <button class="primary-button" data-context-run>Build context</button>
-      </div>
-      <div data-context-results></div>
-    </div>
-
-    <div class="panel" data-panel="impact">
-      <div class="panel-form">
-        <div class="form-field">
-          <label for="impactFrom">From</label>
-          <input id="impactFrom" data-impact-from type="text" value="HEAD~1" style="width:120px">
-        </div>
-        <div class="form-field">
-          <label for="impactTo">To</label>
-          <input id="impactTo" data-impact-to type="text" value="HEAD" style="width:120px">
-        </div>
-        <div class="form-field">
-          <label for="impactDepth">Depth</label>
-          <input id="impactDepth" data-impact-depth type="number" value="3" min="1" max="10" style="width:60px">
-        </div>
-        <button class="primary-button" data-impact-run>Analyze impact</button>
-      </div>
-      <div data-impact-results></div>
-    </div>
-
-    <div class="panel" data-panel="history">
-      <div class="panel-form">
-        <div class="form-field grow">
-          <label for="historyQuery">Search decisions</label>
-          <input id="historyQuery" data-history-query type="text" placeholder="Filter by keyword...">
-        </div>
-        <button class="secondary-button" data-history-run>Search</button>
-      </div>
-      <div data-history-results></div>
-      <details class="panel-form" style="margin-top:20px">
-        <summary style="font-size:13px;font-weight:600;cursor:pointer;color:var(--fg)">Remember a decision</summary>
-        <form data-remember-form style="display:flex;flex-wrap:wrap;gap:10px;margin-top:12px">
-          <div class="form-field grow">
-            <label>Summary</label>
-            <input name="summary" type="text" placeholder="What was decided?" required>
-          </div>
-          <div class="form-field">
-            <label>File</label>
-            <input name="file" type="text" placeholder="src/main.rs">
-          </div>
-          <div class="form-field">
-            <label>Symbol</label>
-            <input name="symbol" type="text" placeholder="fn main">
-          </div>
-          <div class="form-field grow">
-            <label>Rationale</label>
-            <input name="rationale" type="text" placeholder="Why?">
-          </div>
-          <div class="form-field">
-            <label>Tags (comma-separated)</label>
-            <input name="tags" type="text" placeholder="architecture, refactor">
-          </div>
-          <input name="session" type="hidden" value="dashboard">
-          <input name="agent" type="hidden" value="dashboard-user">
-          <button class="primary-button" data-remember-submit type="submit">Remember</button>
-        </form>
-      </details>
-    </div>
-
-    <div class="panel" data-panel="ai" style="display:none;flex-direction:column;padding:0">
-      <div class="ai-chat-panel">
-        <div class="ai-chat-messages" id="aiMessages">
-          <div class="ai-msg is-system">CodeSpace Smart AI ready. Ask anything about your codebase.</div>
-        </div>
-        <div class="ai-chat-input-row">
-          <textarea class="ai-chat-input" id="aiInput" placeholder="Ask about code, architecture, bugs..." rows="1"></textarea>
-          <button class="ai-chat-send" id="aiSend">Send</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="panel" data-panel="tasks" style="display:none">
-      <div class="panel-form">
-        <div class="form-field grow">
-          <label>Title</label>
-          <input id="taskTitle" type="text" placeholder="Task title...">
-        </div>
-        <div class="form-field">
-          <label>Priority</label>
-          <select id="taskPriority">
-            <option value="low">Low</option>
-            <option value="medium" selected>Medium</option>
-            <option value="high">High</option>
-            <option value="critical">Critical</option>
-          </select>
-        </div>
-        <div class="form-field">
-          <label>Tags (comma)</label>
-          <input id="taskTags" type="text" placeholder="bug,ui" style="width:100px">
-        </div>
-        <button class="primary-button" id="taskAddBtn">Add Task</button>
-      </div>
-      <div class="task-list" id="taskList"></div>
-    </div>
-
-    <div class="panel" data-panel="github" style="display:none">
-      <div id="githubContent">
-        <div class="gh-not-linked">Loading GitHub status...</div>
-      </div>
-    </div>
-
-    <div class="panel" data-panel="workspaces">
-      <div data-workspaces-list></div>
-      <details class="panel-form" style="margin-top:20px">
-        <summary style="font-size:13px;font-weight:600;cursor:pointer;color:var(--fg)">Register a new workspace</summary>
-        <form data-workspace-form style="display:flex;flex-wrap:wrap;gap:10px;margin-top:12px">
-          <div class="form-field grow">
-            <label>Directory path</label>
-            <input name="path" type="text" placeholder="/path/to/project" required>
-          </div>
-          <div class="form-field">
-            <label>Name (optional)</label>
-            <input name="name" type="text" placeholder="My Project">
-          </div>
-          <button class="primary-button" data-workspace-submit type="submit">Register</button>
-        </form>
-      </details>
-    </div>
-  </section>
-
-  <aside id="inspector" class="inspector">
-    <div class="inspector-empty">
-      <p>Select a symbol from the graph or the list to inspect it.</p>
-      <p class="muted">Tip: press / to search, or click a node to focus it.</p>
-    </div>
-  </aside>
-</main>
-
-<div id="commandPalette" class="palette-overlay">
-  <div class="palette-dialog" role="dialog" aria-label="Command palette">
-    <div class="palette-input-row">
-      <input data-palette-input type="text" placeholder="Search commands and symbols..." aria-label="Search">
-      <button class="palette-close" data-palette-close aria-label="Close">&times;</button>
-    </div>
-    <div class="palette-list" data-palette-list></div>
+  <div id="bootOverlay" class="boot-overlay">
+    <div class="boot-card"><div class="boot-logo">CS</div><strong>Starting CodeSpace</strong><span id="bootMessage">Loading local runtime…</span></div>
   </div>
-</div>
-
-<div id="toastRoot"></div>
-
-<script>window.__CSE_TOKEN__ = "{token}";</script>
-<script type="module" src="/assets/main.js"></script>
-<script>
-// AI Chat
-(function(){{
-  const msgs = document.getElementById('aiMessages');
-  const input = document.getElementById('aiInput');
-  const sendBtn = document.getElementById('aiSend');
-  const token = window.__CSE_TOKEN__ || '';
-  async function sendChat() {{
-    const text = input.value.trim();
-    if (!text) return;
-    input.value = '';
-    sendBtn.disabled = true;
-    const userDiv = document.createElement('div');
-    userDiv.className = 'ai-msg is-user';
-    userDiv.textContent = text;
-    msgs.appendChild(userDiv);
-    const thinkingDiv = document.createElement('div');
-    thinkingDiv.className = 'ai-msg is-assistant';
-    thinkingDiv.textContent = 'Thinking...';
-    msgs.appendChild(thinkingDiv);
-    msgs.scrollTop = msgs.scrollHeight;
-    try {{
-      const r = await fetch('/api/v1/ai/chat', {{
-        method: 'POST',
-        headers: {{ 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }},
-        body: JSON.stringify({{ query: text }})
-      }});
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const data = await r.json();
-      thinkingDiv.textContent = data.response || data.error || 'No response';
-    }} catch(e) {{
-      thinkingDiv.textContent = 'Error: ' + e.message;
-    }}
-    msgs.scrollTop = msgs.scrollHeight;
-    sendBtn.disabled = false;
-  }}
-  sendBtn.addEventListener('click', sendChat);
-  input.addEventListener('keydown', (e) => {{ if (e.key === 'Enter' && !e.shiftKey) {{ e.preventDefault(); sendChat(); }} }});
-}})();
-
-// Tasks
-(function(){{
-  const list = document.getElementById('taskList');
-  const titleInput = document.getElementById('taskTitle');
-  const prioritySelect = document.getElementById('taskPriority');
-  const tagsInput = document.getElementById('taskTags');
-  const addBtn = document.getElementById('taskAddBtn');
-  const token = window.__CSE_TOKEN__ || '';
-  async function loadTasks() {{
-    try {{
-      const r = await fetch('/api/v1/tasks', {{ headers: {{ 'Authorization': 'Bearer ' + token }} }});
-      if (!r.ok) return;
-      const data = await r.json();
-      list.innerHTML = '';
-      for (const t of (data.tasks || [])) {{
-        const card = document.createElement('div');
-        card.className = 'task-card' + (t.status === 'done' ? ' is-done' : '');
-        const dot = document.createElement('div');
-        dot.className = 'task-priority-dot is-' + (t.priority || 'medium');
-        const body = document.createElement('div');
-        body.className = 'task-body';
-        body.innerHTML = '<div class="task-title"></div><div class="task-desc"></div><div class="task-meta"><span class="task-status-badge">' + (t.status||'todo') + '</span></div>';
-        body.querySelector('.task-title').textContent = t.title;
-        body.querySelector('.task-desc').textContent = t.description || '';
-        if (t.tags && t.tags.length) {{
-          const tagsDiv = document.createElement('div');
-          tagsDiv.className = 'task-tags';
-          for (const tag of t.tags) {{
-            const span = document.createElement('span');
-            span.className = 'task-tag';
-            span.textContent = tag;
-            tagsDiv.appendChild(span);
-          }}
-          body.querySelector('.task-meta').appendChild(tagsDiv);
-        }}
-        card.appendChild(dot);
-        card.appendChild(body);
-        list.appendChild(card);
-      }}
-    }} catch(e) {{}}
-  }}
-  addBtn.addEventListener('click', async () => {{
-    const title = titleInput.value.trim();
-    if (!title) return;
-    addBtn.disabled = true;
-    try {{
-      await fetch('/api/v1/tasks', {{
-        method: 'POST',
-        headers: {{ 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }},
-        body: JSON.stringify({{ title, priority: prioritySelect.value, tags: tagsInput.value }})
-      }});
-      titleInput.value = '';
-      tagsInput.value = '';
-      loadTasks();
-    }} catch(e) {{}}
-    addBtn.disabled = false;
-  }});
-  loadTasks();
-}})();
-
-// GitHub
-(function(){{
-  const content = document.getElementById('githubContent');
-  const token = window.__CSE_TOKEN__ || '';
-  async function loadGitHub() {{
-    try {{
-      const r = await fetch('/api/v1/github/status', {{ headers: {{ 'Authorization': 'Bearer ' + token }} }});
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const data = await r.json();
-      if (!data.token_set) {{
-        content.innerHTML = '<div class="gh-not-linked">GitHub not linked.<br>Run: <code>cse github link --token &lt;token&gt; --username &lt;user&gt;</code></div>';
-        return;
-      }}
-      content.innerHTML = '<div class="gh-status-card"><div class="gh-label">Username</div><div class="gh-value">' + (data.username||'') + '</div></div>';
-    }} catch(e) {{
-      content.innerHTML = '<div class="gh-not-linked">Error loading GitHub status</div>';
-    }}
-  }}
-  loadGitHub();
-}})();
-</script>
+  <div id="toastRoot" aria-live="polite"></div>
+  <script type="module" src="/assets/main.js"></script>
 </body>
-</html>"#
+</html>"##
     )
 }
 
-/// Serve a compiled static asset by URL path (e.g. `/assets/main.js`).
-/// Returns `(content_type, body)` or `None` if not found.
 pub fn asset(path: &str) -> Option<(&'static str, String)> {
     let name = path.strip_prefix("/assets/")?;
     let (content_type, body) = match name {
-        "main.js" => ("text/javascript", include_str!("../dashboard/dist/main.js")),
-        "api.js" => ("text/javascript", include_str!("../dashboard/dist/api.js")),
-        "dom.js" => ("text/javascript", include_str!("../dashboard/dist/dom.js")),
-        "toast.js" => ("text/javascript", include_str!("../dashboard/dist/toast.js")),
-        "state.js" => ("text/javascript", include_str!("../dashboard/dist/state.js")),
-        "sse.js" => ("text/javascript", include_str!("../dashboard/dist/sse.js")),
-        "graph-view.js" => ("text/javascript", include_str!("../dashboard/dist/graph-view.js")),
-        "sidebar.js" => ("text/javascript", include_str!("../dashboard/dist/sidebar.js")),
-        "inspector.js" => ("text/javascript", include_str!("../dashboard/dist/inspector.js")),
-        "command-palette.js" => ("text/javascript", include_str!("../dashboard/dist/command-palette.js")),
-        "types.js" => ("text/javascript", include_str!("../dashboard/dist/types.js")),
-        "panels/context-panel.js" => ("text/javascript", include_str!("../dashboard/dist/panels/context-panel.js")),
-        "panels/impact-panel.js" => ("text/javascript", include_str!("../dashboard/dist/panels/impact-panel.js")),
-        "panels/history-panel.js" => ("text/javascript", include_str!("../dashboard/dist/panels/history-panel.js")),
-        "panels/workspaces-panel.js" => ("text/javascript", include_str!("../dashboard/dist/panels/workspaces-panel.js")),
-        "dashboard.css" => ("text/css", include_str!("../dashboard/dist/dashboard.css")),
+        "main.js" => (
+            "text/javascript; charset=utf-8",
+            include_str!("../dashboard/dist/main.js"),
+        ),
+        "dashboard.css" => (
+            "text/css; charset=utf-8",
+            include_str!("../dashboard/dist/dashboard.css"),
+        ),
         _ => return None,
     };
     Some((content_type, body.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dashboard_has_single_runtime_and_core_views() {
+        let html = render_dashboard("test-token");
+        assert!(html.contains("Repository Map"));
+        assert!(html.contains("MCP Control"));
+        assert!(html.contains("data-view=\"skills\""));
+        assert!(html.contains("meta name=\"cse-session\""));
+        assert_eq!(html.matches("<script").count(), 1);
+        assert!(!html.contains("fetch('/api/v1"));
+    }
+
+    #[test]
+    fn only_compiled_assets_are_public() {
+        assert!(asset("/assets/main.js").is_some());
+        assert!(asset("/assets/dashboard.css").is_some());
+        assert!(asset("/assets/api.js").is_none());
+    }
 }

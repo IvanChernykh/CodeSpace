@@ -1,11 +1,11 @@
-use crate::context::{build_context, render_json as render_context_json, ContextOptions};
+use crate::context::{ContextOptions, build_context, render_json as render_context_json};
 use crate::model::{Error, GraphIndex, Result};
 use crate::search::find_symbols;
 use crate::storage;
 use crate::util::json_escape;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::thread;
 
@@ -29,7 +29,7 @@ pub fn serve(root: &Path, _graph: GraphIndex, address: &str) -> Result<()> {
     Ok(())
 }
 
-fn handle_connection(mut stream: TcpStream, root: &PathBuf) -> Result<()> {
+fn handle_connection(mut stream: TcpStream, root: &Path) -> Result<()> {
     stream.set_read_timeout(Some(std::time::Duration::from_secs(3)))?;
     let mut buffer = [0_u8; 16_384];
     let read = stream.read(&mut buffer)?;
@@ -42,7 +42,12 @@ fn handle_connection(mut stream: TcpStream, root: &PathBuf) -> Result<()> {
     let method = parts.next().unwrap_or_default();
     let target = parts.next().unwrap_or("/");
     if method != "GET" {
-        return write_response(&mut stream, 405, "application/json", "{\"error\":\"method not allowed\"}");
+        return write_response(
+            &mut stream,
+            405,
+            "application/json",
+            "{\"error\":\"method not allowed\"}",
+        );
     }
     let (path, query) = target.split_once('?').unwrap_or((target, ""));
     let params = parse_query(query);
@@ -115,7 +120,10 @@ fn handle_connection(mut stream: TcpStream, root: &PathBuf) -> Result<()> {
                 );
             }
             let mut options = ContextOptions::default();
-            if let Some(tokens) = params.get("max_tokens").and_then(|value| value.parse::<usize>().ok()) {
+            if let Some(tokens) = params
+                .get("max_tokens")
+                .and_then(|value| value.parse::<usize>().ok())
+            {
                 options.max_tokens = tokens.clamp(128, 32_000);
             }
             match build_context(root, &graph, needle, &options) {
@@ -134,7 +142,12 @@ fn handle_connection(mut stream: TcpStream, root: &PathBuf) -> Result<()> {
                 }
             }
         }
-        _ => write_response(&mut stream, 404, "application/json", "{\"error\":\"not found\"}"),
+        _ => write_response(
+            &mut stream,
+            404,
+            "application/json",
+            "{\"error\":\"not found\"}",
+        ),
     }
 }
 
@@ -188,7 +201,12 @@ fn hex_value(byte: u8) -> Option<u8> {
     }
 }
 
-fn write_response(stream: &mut TcpStream, status: u16, content_type: &str, body: &str) -> Result<()> {
+fn write_response(
+    stream: &mut TcpStream,
+    status: u16,
+    content_type: &str,
+    body: &str,
+) -> Result<()> {
     let reason = match status {
         200 => "OK",
         400 => "Bad Request",

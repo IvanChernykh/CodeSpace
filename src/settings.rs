@@ -11,7 +11,9 @@ pub struct Settings {
 
 impl Settings {
     pub fn new() -> Self {
-        Self { values: BTreeMap::new() }
+        Self {
+            values: BTreeMap::new(),
+        }
     }
 
     pub fn get(&self, key: &str) -> Option<&str> {
@@ -19,7 +21,10 @@ impl Settings {
     }
 
     pub fn get_or(&self, key: &str, default: &str) -> String {
-        self.values.get(key).cloned().unwrap_or_else(|| default.to_string())
+        self.values
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| default.to_string())
     }
 
     pub fn set(&mut self, key: &str, value: &str) {
@@ -72,7 +77,8 @@ impl SettingsChain {
     }
 
     pub fn get(&self, key: &str) -> Option<String> {
-        self.session.get(key)
+        self.session
+            .get(key)
             .or_else(|| self.workspace.get(key))
             .or_else(|| self.global.get(key))
             .map(|s| s.to_string())
@@ -220,9 +226,22 @@ fn skip_value(bytes: &[u8], mut idx: usize) -> usize {
     while idx < bytes.len() {
         match bytes[idx] {
             b'{' | b'[' => depth += 1,
-            b'}' | b']' => { if depth == 0 { return idx; } depth -= 1; }
+            b'}' | b']' => {
+                if depth == 0 {
+                    return idx;
+                }
+                depth -= 1;
+            }
             b',' if depth == 0 => return idx,
-            b'"' => { idx += 1; while idx < bytes.len() && bytes[idx] != b'"' { if bytes[idx] == b'\\' { idx += 1; } idx += 1; } }
+            b'"' => {
+                idx += 1;
+                while idx < bytes.len() && bytes[idx] != b'"' {
+                    if bytes[idx] == b'\\' {
+                        idx += 1;
+                    }
+                    idx += 1;
+                }
+            }
             _ => {}
         }
         idx += 1;

@@ -1,7 +1,7 @@
-use codespace::context::{build_context, ContextOptions};
+use codespace::context::{ContextOptions, build_context};
 use codespace::impact;
-use codespace::indexer::{build, IndexOptions};
-use codespace::memory::{history, remember, RememberInput};
+use codespace::indexer::{IndexOptions, build};
+use codespace::memory::{RememberInput, history, remember};
 use codespace::model::SymbolKind;
 use codespace::search::find_symbols;
 use codespace::secret::redact_secrets;
@@ -106,7 +106,9 @@ fn indexes_searches_compacts_and_persists_decisions() {
     assert!(reloaded.decisions.contains_key(&id));
     assert_eq!(history(&reloaded, "security", 10).len(), 1);
 
-    let redacted = redact_secrets("OPENAI_API_KEY=sk-proj-1234567890abcdefgh\npassword: correct-horse-battery");
+    let redacted = redact_secrets(
+        "OPENAI_API_KEY=sk-proj-1234567890abcdefgh\npassword: correct-horse-battery",
+    );
     assert!(redacted.redactions >= 2);
     assert!(!redacted.content.contains("1234567890"));
     assert!(!redacted.content.contains("correct-horse"));
@@ -141,9 +143,24 @@ fn maps_git_changes_to_reverse_callers() {
     let graph = storage::load(&root).unwrap_or_else(|error| panic!("load impact graph: {error}"));
     let report = impact::analyze(&root, &graph, "HEAD~1", "HEAD", 3)
         .unwrap_or_else(|error| panic!("impact analysis: {error}"));
-    assert!(report.changed_files.iter().any(|path| path == "src/auth.rs"));
-    assert!(report.changed_symbols.iter().any(|node| node.symbol.contains("authenticate")));
-    assert!(report.affected.iter().any(|node| node.symbol.contains("login")));
+    assert!(
+        report
+            .changed_files
+            .iter()
+            .any(|path| path == "src/auth.rs")
+    );
+    assert!(
+        report
+            .changed_symbols
+            .iter()
+            .any(|node| node.symbol.contains("authenticate"))
+    );
+    assert!(
+        report
+            .affected
+            .iter()
+            .any(|node| node.symbol.contains("login"))
+    );
 
     let _ = fs::remove_dir_all(root);
 }

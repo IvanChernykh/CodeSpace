@@ -1,5 +1,5 @@
 use crate::model::{Error, Result};
-use crate::util::{now_unix_ms, json_escape};
+use crate::util::{json_escape, now_unix_ms};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -32,7 +32,8 @@ impl WorkspaceRegistry {
         let canonical = fs::canonicalize(path)?;
         if !canonical.is_dir() {
             return Err(Error::InvalidArgument(format!(
-                "not a directory: {}", canonical.display()
+                "not a directory: {}",
+                canonical.display()
             )));
         }
         let path_str = canonical.to_string_lossy().to_string();
@@ -55,7 +56,9 @@ impl WorkspaceRegistry {
         };
         self.workspaces.insert(id_str.clone(), entry);
         self.active_id = Some(id_str.clone());
-        Ok(self.workspaces.get(&id_str).ok_or_else(|| Error::CorruptIndex("workspace insertion failed".to_string()))?)
+        self.workspaces
+            .get(&id_str)
+            .ok_or_else(|| Error::CorruptIndex("workspace insertion failed".to_string()))
     }
 
     pub fn remove(&mut self, id: &str) -> Result<()> {
@@ -80,7 +83,9 @@ impl WorkspaceRegistry {
     }
 
     pub fn active(&self) -> Option<&WorkspaceEntry> {
-        self.active_id.as_ref().and_then(|id| self.workspaces.get(id))
+        self.active_id
+            .as_ref()
+            .and_then(|id| self.workspaces.get(id))
     }
 
     pub fn list(&self) -> Vec<&WorkspaceEntry> {
@@ -106,7 +111,10 @@ impl WorkspaceRegistry {
         format!(
             "{{\"workspaces\":[{}],\"active_id\":{}}}",
             ws_json.join(","),
-            self.active_id.as_ref().map(|id| format!("\"{}\"", json_escape(id))).unwrap_or("null".to_string())
+            self.active_id
+                .as_ref()
+                .map(|id| format!("\"{}\"", json_escape(id)))
+                .unwrap_or("null".to_string())
         )
     }
 }
@@ -217,12 +225,49 @@ fn parse_workspace(content: &str) -> Option<WorkspaceEntry> {
                 if idx < bytes.len() && bytes[idx] == b':' {
                     idx = skip_ws(bytes, idx + 1);
                     match key.as_str() {
-                        "id" => { if let Some((v, n)) = parse_string(content, idx) { id = v; idx = n; } else { idx = skip_value(bytes, idx); } }
-                        "name" => { if let Some((v, n)) = parse_string(content, idx) { name = v; idx = n; } else { idx = skip_value(bytes, idx); } }
-                        "path" => { if let Some((v, n)) = parse_string(content, idx) { path = v; idx = n; } else { idx = skip_value(bytes, idx); } }
-                        "registered_unix_ms" => { if let Some((v, n)) = parse_number(content, idx) { registered = v; idx = n; } else { idx = skip_value(bytes, idx); } }
-                        "last_active_unix_ms" => { if let Some((v, n)) = parse_number(content, idx) { last_active = v; idx = n; } else { idx = skip_value(bytes, idx); } }
-                        _ => { idx = skip_value(bytes, idx); }
+                        "id" => {
+                            if let Some((v, n)) = parse_string(content, idx) {
+                                id = v;
+                                idx = n;
+                            } else {
+                                idx = skip_value(bytes, idx);
+                            }
+                        }
+                        "name" => {
+                            if let Some((v, n)) = parse_string(content, idx) {
+                                name = v;
+                                idx = n;
+                            } else {
+                                idx = skip_value(bytes, idx);
+                            }
+                        }
+                        "path" => {
+                            if let Some((v, n)) = parse_string(content, idx) {
+                                path = v;
+                                idx = n;
+                            } else {
+                                idx = skip_value(bytes, idx);
+                            }
+                        }
+                        "registered_unix_ms" => {
+                            if let Some((v, n)) = parse_number(content, idx) {
+                                registered = v;
+                                idx = n;
+                            } else {
+                                idx = skip_value(bytes, idx);
+                            }
+                        }
+                        "last_active_unix_ms" => {
+                            if let Some((v, n)) = parse_number(content, idx) {
+                                last_active = v;
+                                idx = n;
+                            } else {
+                                idx = skip_value(bytes, idx);
+                            }
+                        }
+                        _ => {
+                            idx = skip_value(bytes, idx);
+                        }
                     }
                 }
             } else {
@@ -285,8 +330,12 @@ fn parse_number(content: &str, start: usize) -> Option<(u128, usize)> {
     let bytes = content.as_bytes();
     let mut idx = start;
     let s = idx;
-    if idx < bytes.len() && bytes[idx] == b'-' { idx += 1; }
-    while idx < bytes.len() && bytes[idx].is_ascii_digit() { idx += 1; }
+    if idx < bytes.len() && bytes[idx] == b'-' {
+        idx += 1;
+    }
+    while idx < bytes.len() && bytes[idx].is_ascii_digit() {
+        idx += 1;
+    }
     content[s..idx].parse().ok().map(|v| (v, idx))
 }
 
@@ -302,7 +351,9 @@ fn parse_array(content: &str, start: usize) -> Option<(Vec<String>, usize)> {
     while idx < bytes.len() {
         match bytes[idx] {
             b'{' => {
-                if depth == 0 { item_start = idx; }
+                if depth == 0 {
+                    item_start = idx;
+                }
                 depth += 1;
             }
             b'}' => {
@@ -336,9 +387,22 @@ fn skip_value(bytes: &[u8], mut idx: usize) -> usize {
     while idx < bytes.len() {
         match bytes[idx] {
             b'{' | b'[' => depth += 1,
-            b'}' | b']' => { if depth == 0 { return idx; } depth -= 1; }
+            b'}' | b']' => {
+                if depth == 0 {
+                    return idx;
+                }
+                depth -= 1;
+            }
             b',' if depth == 0 => return idx,
-            b'"' => { idx += 1; while idx < bytes.len() && bytes[idx] != b'"' { if bytes[idx] == b'\\' { idx += 1; } idx += 1; } }
+            b'"' => {
+                idx += 1;
+                while idx < bytes.len() && bytes[idx] != b'"' {
+                    if bytes[idx] == b'\\' {
+                        idx += 1;
+                    }
+                    idx += 1;
+                }
+            }
             _ => {}
         }
         idx += 1;

@@ -71,7 +71,11 @@ pub fn find_symbols(
     for seed_id in seed_ids {
         let base = scores.get(&seed_id).map_or(0, |entry| entry.0);
         for edge in graph.outgoing(seed_id).chain(graph.incoming(seed_id)) {
-            let neighbor = if edge.from == seed_id { edge.to } else { edge.from };
+            let neighbor = if edge.from == seed_id {
+                edge.to
+            } else {
+                edge.from
+            };
             if graph.symbols.contains_key(&neighbor) {
                 let boost = (base / 8).max(150) * i64::from(edge.confidence_milli) / 1000;
                 let entry = scores.entry(neighbor).or_default();

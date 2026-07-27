@@ -85,7 +85,14 @@ impl TaskBoard {
         Self::default()
     }
 
-    pub fn add(&mut self, title: &str, description: &str, priority: TaskPriority, due: Option<u128>, tags: Vec<String>) -> &Task {
+    pub fn add(
+        &mut self,
+        title: &str,
+        description: &str,
+        priority: TaskPriority,
+        due: Option<u128>,
+        tags: Vec<String>,
+    ) -> &Task {
         let id = format!("task-{}", now_unix_ms());
         let task = Task {
             id: id.clone(),
@@ -98,8 +105,7 @@ impl TaskBoard {
             completed_unix_ms: None,
             tags,
         };
-        self.tasks.insert(id.clone(), task);
-        self.tasks.get(&id).expect("inserted task must exist")
+        self.tasks.entry(id).or_insert(task)
     }
 
     pub fn remove(&mut self, id: &str) -> Result<()> {
@@ -110,7 +116,9 @@ impl TaskBoard {
     }
 
     pub fn set_status(&mut self, id: &str, status: TaskStatus) -> Result<()> {
-        let task = self.tasks.get_mut(id)
+        let task = self
+            .tasks
+            .get_mut(id)
             .ok_or_else(|| Error::InvalidArgument(format!("task not found: {id}")))?;
         task.status = status;
         if status == TaskStatus::Done || status == TaskStatus::Cancelled {
@@ -122,7 +130,9 @@ impl TaskBoard {
     }
 
     pub fn set_priority(&mut self, id: &str, priority: TaskPriority) -> Result<()> {
-        let task = self.tasks.get_mut(id)
+        let task = self
+            .tasks
+            .get_mut(id)
             .ok_or_else(|| Error::InvalidArgument(format!("task not found: {id}")))?;
         task.priority = priority;
         Ok(())
@@ -131,21 +141,26 @@ impl TaskBoard {
     pub fn list(&self) -> Vec<&Task> {
         let mut tasks: Vec<&Task> = self.tasks.values().collect();
         tasks.sort_by(|a, b| {
-            b.priority.cmp(&a.priority)
+            b.priority
+                .cmp(&a.priority)
                 .then_with(|| a.created_unix_ms.cmp(&b.created_unix_ms))
         });
         tasks
     }
 
     pub fn list_by_status(&self, status: TaskStatus) -> Vec<&Task> {
-        self.list().into_iter().filter(|t| t.status == status).collect()
+        self.list()
+            .into_iter()
+            .filter(|t| t.status == status)
+            .collect()
     }
 
     pub fn list_upcoming(&self) -> Vec<&Task> {
         let now = now_unix_ms();
-        self.list().into_iter()
+        self.list()
+            .into_iter()
             .filter(|t| t.status == TaskStatus::Todo || t.status == TaskStatus::InProgress)
-            .filter(|t| t.due_unix_ms.map_or(true, |due| due >= now))
+            .filter(|t| t.due_unix_ms.is_none_or(|due| due >= now))
             .collect()
     }
 
@@ -161,8 +176,8 @@ impl TaskBoard {
                     t.status.as_str(),
                     t.priority.as_str(),
                     t.created_unix_ms,
-                    t.due_unix_ms.map_or("null".to_string(), |v| v.to_string()),
-                    t.completed_unix_ms.map_or("null".to_string(), |v| v.to_string()),
+                    t.due_unix_ms.map_or_else(|| "null".to_string(), |v| v.to_string()),
+                    t.completed_unix_ms.map_or_else(|| "null".to_string(), |v| v.to_string()),
                     t.tags.iter().map(|tag| format!("\"{}\"", json_escape(tag))).collect::<Vec<_>>().join(",")
                 )
             })
@@ -251,16 +266,81 @@ fn parse_task(content: &str) -> Option<Task> {
                 if idx < bytes.len() && bytes[idx] == b':' {
                     idx = skip_ws(bytes, idx + 1);
                     match key.as_str() {
-                        "id" => { if let Some((v, n)) = parse_string(content, idx) { id = v; idx = n; } else { idx = skip_value(bytes, idx); } }
-                        "title" => { if let Some((v, n)) = parse_string(content, idx) { title = v; idx = n; } else { idx = skip_value(bytes, idx); } }
-                        "description" => { if let Some((v, n)) = parse_string(content, idx) { description = v; idx = n; } else { idx = skip_value(bytes, idx); } }
-                        "status" => { if let Some((v, n)) = parse_string(content, idx) { status = TaskStatus::parse(&v).unwrap_or(TaskStatus::Todo); idx = n; } else { idx = skip_value(bytes, idx); } }
-                        "priority" => { if let Some((v, n)) = parse_string(content, idx) { priority = TaskPriority::parse(&v).unwrap_or(TaskPriority::Medium); idx = n; } else { idx = skip_value(bytes, idx); } }
-                        "created_unix_ms" => { if let Some((v, n)) = parse_number(content, idx) { created = v; idx = n; } else { idx = skip_value(bytes, idx); } }
-                        "due_unix_ms" => { if let Some((v, n)) = parse_number(content, idx) { due = Some(v); idx = n; } else { idx = skip_value(bytes, idx); } }
-                        "completed_unix_ms" => { if let Some((v, n)) = parse_number(content, idx) { completed = Some(v); idx = n; } else { idx = skip_value(bytes, idx); } }
-                        "tags" => { if let Some((items, n)) = parse_string_array(content, idx) { tags = items; idx = n; } else { idx = skip_value(bytes, idx); } }
-                        _ => { idx = skip_value(bytes, idx); }
+                        "id" => {
+                            if let Some((v, n)) = parse_string(content, idx) {
+                                id = v;
+                                idx = n;
+                            } else {
+                                idx = skip_value(bytes, idx);
+                            }
+                        }
+                        "title" => {
+                            if let Some((v, n)) = parse_string(content, idx) {
+                                title = v;
+                                idx = n;
+                            } else {
+                                idx = skip_value(bytes, idx);
+                            }
+                        }
+                        "description" => {
+                            if let Some((v, n)) = parse_string(content, idx) {
+                                description = v;
+                                idx = n;
+                            } else {
+                                idx = skip_value(bytes, idx);
+                            }
+                        }
+                        "status" => {
+                            if let Some((v, n)) = parse_string(content, idx) {
+                                status = TaskStatus::parse(&v).unwrap_or(TaskStatus::Todo);
+                                idx = n;
+                            } else {
+                                idx = skip_value(bytes, idx);
+                            }
+                        }
+                        "priority" => {
+                            if let Some((v, n)) = parse_string(content, idx) {
+                                priority = TaskPriority::parse(&v).unwrap_or(TaskPriority::Medium);
+                                idx = n;
+                            } else {
+                                idx = skip_value(bytes, idx);
+                            }
+                        }
+                        "created_unix_ms" => {
+                            if let Some((v, n)) = parse_number(content, idx) {
+                                created = v;
+                                idx = n;
+                            } else {
+                                idx = skip_value(bytes, idx);
+                            }
+                        }
+                        "due_unix_ms" => {
+                            if let Some((v, n)) = parse_number(content, idx) {
+                                due = Some(v);
+                                idx = n;
+                            } else {
+                                idx = skip_value(bytes, idx);
+                            }
+                        }
+                        "completed_unix_ms" => {
+                            if let Some((v, n)) = parse_number(content, idx) {
+                                completed = Some(v);
+                                idx = n;
+                            } else {
+                                idx = skip_value(bytes, idx);
+                            }
+                        }
+                        "tags" => {
+                            if let Some((items, n)) = parse_string_array(content, idx) {
+                                tags = items;
+                                idx = n;
+                            } else {
+                                idx = skip_value(bytes, idx);
+                            }
+                        }
+                        _ => {
+                            idx = skip_value(bytes, idx);
+                        }
                     }
                 }
             } else {
@@ -272,7 +352,17 @@ fn parse_task(content: &str) -> Option<Task> {
     }
 
     if !id.is_empty() {
-        Some(Task { id, title, description, status, priority, created_unix_ms: created, due_unix_ms: due, completed_unix_ms: completed, tags })
+        Some(Task {
+            id,
+            title,
+            description,
+            status,
+            priority,
+            created_unix_ms: created,
+            due_unix_ms: due,
+            completed_unix_ms: completed,
+            tags,
+        })
     } else {
         None
     }
@@ -280,7 +370,9 @@ fn parse_task(content: &str) -> Option<Task> {
 
 fn parse_string(content: &str, start: usize) -> Option<(String, usize)> {
     let bytes = content.as_bytes();
-    if bytes.get(start) != Some(&b'"') { return None; }
+    if bytes.get(start) != Some(&b'"') {
+        return None;
+    }
     let mut output = String::new();
     let mut idx = start + 1;
     while idx < bytes.len() {
@@ -325,23 +417,45 @@ fn parse_number(content: &str, start: usize) -> Option<(u128, usize)> {
     let bytes = content.as_bytes();
     let mut idx = start;
     let s = idx;
-    while idx < bytes.len() && bytes[idx].is_ascii_digit() { idx += 1; }
-    if idx > s { content[s..idx].parse().ok().map(|v| (v, idx)) } else { None }
+    while idx < bytes.len() && bytes[idx].is_ascii_digit() {
+        idx += 1;
+    }
+    if idx > s {
+        content[s..idx].parse().ok().map(|v| (v, idx))
+    } else {
+        None
+    }
 }
 
 fn parse_array(content: &str, start: usize) -> Option<(Vec<String>, usize)> {
     let bytes = content.as_bytes();
-    if bytes.get(start) != Some(&b'[') { return None; }
+    if bytes.get(start) != Some(&b'[') {
+        return None;
+    }
     let mut items = Vec::new();
     let mut idx = start + 1;
     let mut depth = 0;
     let mut item_start = idx;
     while idx < bytes.len() {
         match bytes[idx] {
-            b'{' => { if depth == 0 { item_start = idx; } depth += 1; }
-            b'}' => { depth -= 1; if depth == 0 { items.push(content[item_start..=idx].to_string()); } }
+            b'{' => {
+                if depth == 0 {
+                    item_start = idx;
+                }
+                depth += 1;
+            }
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    items.push(content[item_start..=idx].to_string());
+                }
+            }
             b']' if depth == 0 => return Some((items, idx + 1)),
-            b'"' => { if let Some((_, end)) = parse_string(content, idx) { idx = end - 1; } }
+            b'"' => {
+                if let Some((_, end)) = parse_string(content, idx) {
+                    idx = end - 1;
+                }
+            }
             _ => {}
         }
         idx += 1;
@@ -351,14 +465,23 @@ fn parse_array(content: &str, start: usize) -> Option<(Vec<String>, usize)> {
 
 fn parse_string_array(content: &str, start: usize) -> Option<(Vec<String>, usize)> {
     let bytes = content.as_bytes();
-    if bytes.get(start) != Some(&b'[') { return None; }
+    if bytes.get(start) != Some(&b'[') {
+        return None;
+    }
     let mut items = Vec::new();
     let mut idx = start + 1;
     loop {
         idx = skip_ws(bytes, idx);
-        if idx >= bytes.len() { return None; }
-        if bytes[idx] == b']' { return Some((items, idx + 1)); }
-        if bytes[idx] == b',' { idx += 1; continue; }
+        if idx >= bytes.len() {
+            return None;
+        }
+        if bytes[idx] == b']' {
+            return Some((items, idx + 1));
+        }
+        if bytes[idx] == b',' {
+            idx += 1;
+            continue;
+        }
         if let Some((s, end)) = parse_string(content, idx) {
             items.push(s);
             idx = end;
@@ -369,7 +492,9 @@ fn parse_string_array(content: &str, start: usize) -> Option<(Vec<String>, usize
 }
 
 fn skip_ws(bytes: &[u8], mut idx: usize) -> usize {
-    while idx < bytes.len() && matches!(bytes[idx], b' ' | b'\t' | b'\n' | b'\r') { idx += 1; }
+    while idx < bytes.len() && matches!(bytes[idx], b' ' | b'\t' | b'\n' | b'\r') {
+        idx += 1;
+    }
     idx
 }
 
@@ -378,9 +503,22 @@ fn skip_value(bytes: &[u8], mut idx: usize) -> usize {
     while idx < bytes.len() {
         match bytes[idx] {
             b'{' | b'[' => depth += 1,
-            b'}' | b']' => { if depth == 0 { return idx; } depth -= 1; }
+            b'}' | b']' => {
+                if depth == 0 {
+                    return idx;
+                }
+                depth -= 1;
+            }
             b',' if depth == 0 => return idx,
-            b'"' => { idx += 1; while idx < bytes.len() && bytes[idx] != b'"' { if bytes[idx] == b'\\' { idx += 1; } idx += 1; } }
+            b'"' => {
+                idx += 1;
+                while idx < bytes.len() && bytes[idx] != b'"' {
+                    if bytes[idx] == b'\\' {
+                        idx += 1;
+                    }
+                    idx += 1;
+                }
+            }
             _ => {}
         }
         idx += 1;

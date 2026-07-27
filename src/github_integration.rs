@@ -76,15 +76,49 @@ fn parse_config(content: &str) -> GitHubConfig {
                 if idx < bytes.len() && bytes[idx] == b':' {
                     idx = skip_ws(bytes, idx + 1);
                     match key.as_str() {
-                        "token" => { if let Some((v, n)) = parse_string(content, idx) { config.token = v; idx = n; } else { idx = skip_value(bytes, idx); } }
-                        "username" => { if let Some((v, n)) = parse_string(content, idx) { config.username = v; idx = n; } else { idx = skip_value(bytes, idx); } }
-                        "default_owner" => { if let Some((v, n)) = parse_string(content, idx) { config.default_owner = v; idx = n; } else { idx = skip_value(bytes, idx); } }
-                        "default_repo" => { if let Some((v, n)) = parse_string(content, idx) { config.default_repo = v; idx = n; } else { idx = skip_value(bytes, idx); } }
-                        _ => { idx = skip_value(bytes, idx); }
+                        "token" => {
+                            if let Some((v, n)) = parse_string(content, idx) {
+                                config.token = v;
+                                idx = n;
+                            } else {
+                                idx = skip_value(bytes, idx);
+                            }
+                        }
+                        "username" => {
+                            if let Some((v, n)) = parse_string(content, idx) {
+                                config.username = v;
+                                idx = n;
+                            } else {
+                                idx = skip_value(bytes, idx);
+                            }
+                        }
+                        "default_owner" => {
+                            if let Some((v, n)) = parse_string(content, idx) {
+                                config.default_owner = v;
+                                idx = n;
+                            } else {
+                                idx = skip_value(bytes, idx);
+                            }
+                        }
+                        "default_repo" => {
+                            if let Some((v, n)) = parse_string(content, idx) {
+                                config.default_repo = v;
+                                idx = n;
+                            } else {
+                                idx = skip_value(bytes, idx);
+                            }
+                        }
+                        _ => {
+                            idx = skip_value(bytes, idx);
+                        }
                     }
                 }
-            } else { idx += 1; }
-        } else { idx += 1; }
+            } else {
+                idx += 1;
+            }
+        } else {
+            idx += 1;
+        }
     }
     config
 }
@@ -112,25 +146,41 @@ pub fn status(root: &Path) -> GitHubConfig {
     load_config(root)
 }
 
-pub fn list_issues(root: &Path, owner: Option<&str>, repo: Option<&str>, state: &str) -> Result<String> {
+pub fn list_issues(
+    root: &Path,
+    owner: Option<&str>,
+    repo: Option<&str>,
+    state: &str,
+) -> Result<String> {
     let config = load_config(root);
     if !config.is_configured() {
-        return Err(Error::InvalidArgument("GitHub not linked. Run: cse github link --token <token> --username <user>".to_string()));
+        return Err(Error::InvalidArgument(
+            "GitHub not linked. Run: cse github link --token <token> --username <user>".to_string(),
+        ));
     }
     let owner = owner.unwrap_or(&config.default_owner);
     let repo = repo.unwrap_or(&config.default_repo);
     if owner.is_empty() || repo.is_empty() {
-        return Err(Error::InvalidArgument("owner and repo must be set".to_string()));
+        return Err(Error::InvalidArgument(
+            "owner and repo must be set".to_string(),
+        ));
     }
     let path = format!("/repos/{owner}/{repo}/issues?state={state}&per_page=30");
     let response = github_api_get(&config.token, &path)?;
     Ok(response)
 }
 
-pub fn list_prs(root: &Path, owner: Option<&str>, repo: Option<&str>, state: &str) -> Result<String> {
+pub fn list_prs(
+    root: &Path,
+    owner: Option<&str>,
+    repo: Option<&str>,
+    state: &str,
+) -> Result<String> {
     let config = load_config(root);
     if !config.is_configured() {
-        return Err(Error::InvalidArgument("GitHub not linked. Run: cse github link --token <token> --username <user>".to_string()));
+        return Err(Error::InvalidArgument(
+            "GitHub not linked. Run: cse github link --token <token> --username <user>".to_string(),
+        ));
     }
     let owner = owner.unwrap_or(&config.default_owner);
     let repo = repo.unwrap_or(&config.default_repo);
@@ -139,7 +189,13 @@ pub fn list_prs(root: &Path, owner: Option<&str>, repo: Option<&str>, state: &st
     Ok(response)
 }
 
-pub fn create_issue(root: &Path, title: &str, body: &str, owner: Option<&str>, repo: Option<&str>) -> Result<String> {
+pub fn create_issue(
+    root: &Path,
+    title: &str,
+    body: &str,
+    owner: Option<&str>,
+    repo: Option<&str>,
+) -> Result<String> {
     let config = load_config(root);
     if !config.is_configured() {
         return Err(Error::InvalidArgument("GitHub not linked".to_string()));
@@ -161,7 +217,7 @@ pub fn list_repos(root: &Path) -> Result<String> {
     if !config.is_configured() {
         return Err(Error::InvalidArgument("GitHub not linked".to_string()));
     }
-    let path = format!("/user/repos?per_page=50&sort=updated");
+    let path = "/user/repos?per_page=50&sort=updated".to_string();
     let response = github_api_get(&config.token, &path)?;
     Ok(response)
 }
@@ -186,16 +242,21 @@ fn github_api_request(token: &str, method: &str, path: &str, body: &str) -> Resu
     use std::net::ToSocketAddrs;
 
     let host_port = format!("{GITHUB_API_HOST}:{GITHUB_API_PORT}");
-    let addrs = host_port.to_socket_addrs()
+    let addrs = host_port
+        .to_socket_addrs()
         .map_err(|e| Error::InvalidArgument(format!("DNS resolution failed: {e}")))?;
     let mut stream = None;
     for addr in addrs {
         match TcpStream::connect_timeout(&addr, Duration::from_secs(10)) {
-            Ok(s) => { stream = Some(s); break; }
+            Ok(s) => {
+                stream = Some(s);
+                break;
+            }
             Err(_) => continue,
         }
     }
-    let mut stream = stream.ok_or_else(|| Error::InvalidArgument("cannot connect to GitHub API".to_string()))?;
+    let mut stream =
+        stream.ok_or_else(|| Error::InvalidArgument("cannot connect to GitHub API".to_string()))?;
 
     stream.set_read_timeout(Some(Duration::from_secs(30)))?;
     stream.set_write_timeout(Some(Duration::from_secs(10)))?;
@@ -233,7 +294,9 @@ fn github_api_request(token: &str, method: &str, path: &str, body: &str) -> Resu
 
 fn parse_string(content: &str, start: usize) -> Option<(String, usize)> {
     let bytes = content.as_bytes();
-    if bytes.get(start) != Some(&b'"') { return None; }
+    if bytes.get(start) != Some(&b'"') {
+        return None;
+    }
     let mut output = String::new();
     let mut idx = start + 1;
     while idx < bytes.len() {
@@ -275,7 +338,9 @@ fn parse_string(content: &str, start: usize) -> Option<(String, usize)> {
 }
 
 fn skip_ws(bytes: &[u8], mut idx: usize) -> usize {
-    while idx < bytes.len() && matches!(bytes[idx], b' ' | b'\t' | b'\n' | b'\r') { idx += 1; }
+    while idx < bytes.len() && matches!(bytes[idx], b' ' | b'\t' | b'\n' | b'\r') {
+        idx += 1;
+    }
     idx
 }
 
@@ -284,9 +349,22 @@ fn skip_value(bytes: &[u8], mut idx: usize) -> usize {
     while idx < bytes.len() {
         match bytes[idx] {
             b'{' | b'[' => depth += 1,
-            b'}' | b']' => { if depth == 0 { return idx; } depth -= 1; }
+            b'}' | b']' => {
+                if depth == 0 {
+                    return idx;
+                }
+                depth -= 1;
+            }
             b',' if depth == 0 => return idx,
-            b'"' => { idx += 1; while idx < bytes.len() && bytes[idx] != b'"' { if bytes[idx] == b'\\' { idx += 1; } idx += 1; } }
+            b'"' => {
+                idx += 1;
+                while idx < bytes.len() && bytes[idx] != b'"' {
+                    if bytes[idx] == b'\\' {
+                        idx += 1;
+                    }
+                    idx += 1;
+                }
+            }
             _ => {}
         }
         idx += 1;

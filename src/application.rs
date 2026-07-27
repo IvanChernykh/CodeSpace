@@ -1,4 +1,7 @@
-use crate::context::{build_context, render_json as render_context_json, render_markdown, render_plain, ContextOptions};
+use crate::context::{
+    ContextOptions, build_context, render_json as render_context_json, render_markdown,
+    render_plain,
+};
 use crate::export;
 use crate::impact;
 use crate::memory::{self, RememberInput};
@@ -116,7 +119,10 @@ impl ActionParams {
     }
 
     pub fn get_or(&self, key: &str, default: &str) -> String {
-        self.flags.get(key).cloned().unwrap_or_else(|| default.to_string())
+        self.flags
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| default.to_string())
     }
 
     pub fn get_usize(&self, key: &str) -> Option<usize> {
@@ -132,7 +138,10 @@ impl ActionParams {
     }
 
     pub fn first_or(&self, default: &str) -> String {
-        self.positional.first().cloned().unwrap_or_else(|| default.to_string())
+        self.positional
+            .first()
+            .cloned()
+            .unwrap_or_else(|| default.to_string())
     }
 }
 
@@ -172,12 +181,18 @@ impl ActionRegistry {
         None
     }
 
-    pub fn execute(&self, name: &str, ctx: &ActionContext, params: &ActionParams) -> Result<ActionResult> {
+    pub fn execute(
+        &self,
+        name: &str,
+        ctx: &ActionContext,
+        params: &ActionParams,
+    ) -> Result<ActionResult> {
         match self.find(name) {
             Some((meta, handler)) => {
                 if meta.read_only && params.get_bool("write") {
                     return Err(Error::InvalidArgument(format!(
-                        "action `{}` is read-only", meta.name
+                        "action `{}` is read-only",
+                        meta.name
                     )));
                 }
                 handler(ctx, params)
@@ -295,10 +310,7 @@ fn action_init(ctx: &ActionContext, params: &ActionParams) -> Result<ActionResul
     let force = params.get_bool("force");
     let graph = storage::initialize(&ctx.root, force)?;
     let sv = graph.index_revision;
-    let msg = format!(
-        "initialized CodeSpace index at {}",
-        ctx.root.display()
-    );
+    let msg = format!("initialized CodeSpace index at {}", ctx.root.display());
     Ok(ActionResult::ok(msg, sv))
 }
 
@@ -313,14 +325,25 @@ fn action_update(ctx: &ActionContext, params: &ActionParams) -> Result<ActionRes
     let msg = if ctx.format == OutputFormat::Json {
         format!(
             "{{\"files_scanned\":{},\"files_indexed\":{},\"files_skipped\":{},\"files_removed\":{},\"symbols\":{},\"edges\":{},\"bytes_scanned\":{},\"elapsed_ms\":{}}}",
-            stats.files_scanned, stats.files_indexed, stats.files_skipped_unchanged,
-            stats.files_removed, stats.symbols, stats.edges, stats.bytes_scanned, stats.elapsed_ms
+            stats.files_scanned,
+            stats.files_indexed,
+            stats.files_skipped_unchanged,
+            stats.files_removed,
+            stats.symbols,
+            stats.edges,
+            stats.bytes_scanned,
+            stats.elapsed_ms
         )
     } else {
         format!(
             "scanned {} file(s), indexed {}, skipped {} unchanged, removed {}; {} symbol(s), {} edge(s), {} ms",
-            stats.files_scanned, stats.files_indexed, stats.files_skipped_unchanged,
-            stats.files_removed, stats.symbols, stats.edges, stats.elapsed_ms
+            stats.files_scanned,
+            stats.files_indexed,
+            stats.files_skipped_unchanged,
+            stats.files_removed,
+            stats.symbols,
+            stats.edges,
+            stats.elapsed_ms
         )
     };
     Ok(ActionResult::ok(msg, sv))
@@ -329,7 +352,9 @@ fn action_update(ctx: &ActionContext, params: &ActionParams) -> Result<ActionRes
 fn action_context(ctx: &ActionContext, params: &ActionParams) -> Result<ActionResult> {
     let query = params.first_or("").trim().to_string();
     if query.is_empty() {
-        return Err(Error::InvalidArgument("query is required for context".to_string()));
+        return Err(Error::InvalidArgument(
+            "query is required for context".to_string(),
+        ));
     }
     let mut options = ContextOptions::default();
     if let Some(max_tokens) = params.get_usize("max-tokens") {
@@ -350,7 +375,9 @@ fn action_context(ctx: &ActionContext, params: &ActionParams) -> Result<ActionRe
 fn action_search(ctx: &ActionContext, params: &ActionParams) -> Result<ActionResult> {
     let query = params.first_or("").trim().to_string();
     if query.is_empty() {
-        return Err(Error::InvalidArgument("query is required for search".to_string()));
+        return Err(Error::InvalidArgument(
+            "query is required for search".to_string(),
+        ));
     }
     let kind = params.get("kind").and_then(SymbolKind::parse);
     let limit = params.get_usize("limit").unwrap_or(20).clamp(1, 200);
@@ -391,18 +418,31 @@ fn action_history(ctx: &ActionContext, params: &ActionParams) -> Result<ActionRe
 fn action_remember(ctx: &ActionContext, params: &ActionParams) -> Result<ActionResult> {
     let summary = params.get_or("summary", "").trim().to_string();
     if summary.is_empty() {
-        return Err(Error::InvalidArgument("summary is required for remember".to_string()));
+        return Err(Error::InvalidArgument(
+            "summary is required for remember".to_string(),
+        ));
     }
     let mut graph = ctx.graph.clone();
-    let id = memory::remember(&mut graph, RememberInput {
-        file: params.get_or("file", "").trim().to_string(),
-        symbol: params.get_or("symbol", "").trim().to_string(),
-        session: params.get_or("session", "").trim().to_string(),
-        agent: params.get_or("agent", "").trim().to_string(),
-        summary,
-        rationale: params.get_or("rationale", "").trim().to_string(),
-        tags: params.get("tags").map(|t| t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()).unwrap_or_default(),
-    });
+    let id = memory::remember(
+        &mut graph,
+        RememberInput {
+            file: params.get_or("file", "").trim().to_string(),
+            symbol: params.get_or("symbol", "").trim().to_string(),
+            session: params.get_or("session", "").trim().to_string(),
+            agent: params.get_or("agent", "").trim().to_string(),
+            summary,
+            rationale: params.get_or("rationale", "").trim().to_string(),
+            tags: params
+                .get("tags")
+                .map(|t| {
+                    t.split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default(),
+        },
+    );
     storage::save(&ctx.root, &graph)?;
     let msg = format!("remembered decision {id}");
     Ok(ActionResult::ok(msg, graph.index_revision))
@@ -414,7 +454,11 @@ fn action_export(ctx: &ActionContext, params: &ActionParams) -> Result<ActionRes
         "json" => export::to_json(&ctx.graph),
         "dot" | "graphviz" => export::to_graphviz(&ctx.graph),
         "html" => export::to_html(&ctx.graph),
-        other => return Err(Error::InvalidArgument(format!("unknown export format `{other}`"))),
+        other => {
+            return Err(Error::InvalidArgument(format!(
+                "unknown export format `{other}`"
+            )));
+        }
     };
     Ok(ActionResult::ok(output, ctx.graph.index_revision))
 }
@@ -424,14 +468,24 @@ fn action_stats(ctx: &ActionContext, _params: &ActionParams) -> Result<ActionRes
     let output = if ctx.format == OutputFormat::Json {
         format!(
             "{{\"files\":{},\"symbols\":{},\"edges\":{},\"decisions\":{},\"index_revision\":{},\"schema_version\":{},\"updated_unix_ms\":{}}}",
-            g.files.len(), g.symbols.len(), g.edges.len(), g.decisions.len(),
-            g.index_revision, g.schema_version, g.updated_unix_ms
+            g.files.len(),
+            g.symbols.len(),
+            g.edges.len(),
+            g.decisions.len(),
+            g.index_revision,
+            g.schema_version,
+            g.updated_unix_ms
         )
     } else {
         format!(
             "files: {}\nsymbols: {}\nedges: {}\ndecisions: {}\nindex revision: {}\nschema: {}\nupdated: {}",
-            g.files.len(), g.symbols.len(), g.edges.len(), g.decisions.len(),
-            g.index_revision, g.schema_version, g.updated_unix_ms
+            g.files.len(),
+            g.symbols.len(),
+            g.edges.len(),
+            g.decisions.len(),
+            g.index_revision,
+            g.schema_version,
+            g.updated_unix_ms
         )
     };
     Ok(ActionResult::ok(output, g.index_revision))
@@ -448,7 +502,12 @@ fn action_doctor(ctx: &ActionContext, params: &ActionParams) -> Result<ActionRes
             Ok(g) => {
                 messages.push(format!("index schema_version: {}", g.schema_version));
                 messages.push(format!("index revision: {}", g.index_revision));
-                messages.push(format!("files: {}, symbols: {}, edges: {}", g.files.len(), g.symbols.len(), g.edges.len()));
+                messages.push(format!(
+                    "files: {}, symbols: {}, edges: {}",
+                    g.files.len(),
+                    g.symbols.len(),
+                    g.edges.len()
+                ));
             }
             Err(error) => {
                 messages.push(format!("index load error: {error}"));
@@ -492,30 +551,44 @@ fn action_doctor(ctx: &ActionContext, params: &ActionParams) -> Result<ActionRes
 fn action_read(ctx: &ActionContext, params: &ActionParams) -> Result<ActionResult> {
     let file = params.first_or("").trim().to_string();
     if file.is_empty() {
-        return Err(Error::InvalidArgument("file path is required for read".to_string()));
+        return Err(Error::InvalidArgument(
+            "file path is required for read".to_string(),
+        ));
     }
     if file.contains("..") {
-        return Err(Error::InvalidArgument("path traversal is not allowed".to_string()));
+        return Err(Error::InvalidArgument(
+            "path traversal is not allowed".to_string(),
+        ));
     }
     let max_lines = params.get_usize("max-lines").unwrap_or(400).clamp(1, 5_000);
     let path = ctx.root.join(&file);
     let canonical = fs::canonicalize(&path)?;
     let canonical_root = fs::canonicalize(&ctx.root).unwrap_or_else(|_| ctx.root.to_path_buf());
     if !canonical.starts_with(&canonical_root) {
-        return Err(Error::InvalidArgument("path escapes project root".to_string()));
+        return Err(Error::InvalidArgument(
+            "path escapes project root".to_string(),
+        ));
     }
     let relative = normalized_relative(&ctx.root, &canonical)?;
-    if relative == ".git" || relative == ".codespace"
-        || relative.starts_with(".git/") || relative.starts_with(".codespace/")
+    if relative == ".git"
+        || relative == ".codespace"
+        || relative.starts_with(".git/")
+        || relative.starts_with(".codespace/")
     {
-        return Err(Error::InvalidArgument("reading internal metadata is blocked".to_string()));
+        return Err(Error::InvalidArgument(
+            "reading internal metadata is blocked".to_string(),
+        ));
     }
     let metadata = fs::metadata(&canonical)?;
     if !metadata.is_file() {
-        return Err(Error::InvalidArgument("requested path is not a regular file".to_string()));
+        return Err(Error::InvalidArgument(
+            "requested path is not a regular file".to_string(),
+        ));
     }
     if metadata.len() > 2_097_152 {
-        return Err(Error::InvalidArgument("file exceeds 2 MiB read limit".to_string()));
+        return Err(Error::InvalidArgument(
+            "file exceeds 2 MiB read limit".to_string(),
+        ));
     }
     let bytes = fs::read(canonical)?;
     let content = String::from_utf8_lossy(&bytes);
@@ -541,7 +614,10 @@ fn action_graph(ctx: &ActionContext, _params: &ActionParams) -> Result<ActionRes
     } else {
         format!(
             "files: {}, symbols: {}, edges: {}, decisions: {}",
-            ctx.graph.files.len(), ctx.graph.symbols.len(), ctx.graph.edges.len(), ctx.graph.decisions.len()
+            ctx.graph.files.len(),
+            ctx.graph.symbols.len(),
+            ctx.graph.edges.len(),
+            ctx.graph.decisions.len()
         )
     };
     Ok(ActionResult::ok(output, ctx.graph.index_revision))
@@ -577,7 +653,9 @@ fn render_search_plain(graph: &GraphIndex, hits: &[model::SearchHit]) -> String 
     let mut output = String::new();
     for hit in hits {
         if let Some(symbol) = graph.symbols.get(&hit.symbol_id) {
-            let path = graph.file_for_symbol(symbol).map_or("", |f| f.path.as_str());
+            let path = graph
+                .file_for_symbol(symbol)
+                .map_or("", |f| f.path.as_str());
             output.push_str(&format!(
                 "{} [{}] {}:{}-{} score={} reasons={}\n",
                 symbol.qualified_name,

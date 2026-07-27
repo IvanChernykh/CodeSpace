@@ -49,11 +49,17 @@ pub fn history<'a>(graph: &'a GraphIndex, target: &str, limit: usize) -> Vec<&'a
             target.is_empty()
                 || decision.file.to_ascii_lowercase().contains(&target_lower)
                 || decision.symbol.to_ascii_lowercase().contains(&target_lower)
-                || decision.summary.to_ascii_lowercase().contains(&target_lower)
-                || decision.tags.iter().any(|tag| tag.to_ascii_lowercase() == target_lower)
+                || decision
+                    .summary
+                    .to_ascii_lowercase()
+                    .contains(&target_lower)
+                || decision
+                    .tags
+                    .iter()
+                    .any(|tag| tag.to_ascii_lowercase() == target_lower)
         })
         .collect();
-    decisions.sort_by(|left, right| right.timestamp_unix_ms.cmp(&left.timestamp_unix_ms));
+    decisions.sort_by_key(|decision| std::cmp::Reverse(decision.timestamp_unix_ms));
     decisions.truncate(limit);
     decisions
 }
