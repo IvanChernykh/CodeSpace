@@ -42,6 +42,6 @@ jobs:
           git restore --worktree --staged artifacts 2>/dev/null || true
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .self-test-failure.log .autofix-trigger
+          git add -A
           git commit -m "ci: persist compact CodeSpace self-test diagnosis"
           git push origin "HEAD:${HEAD_REF}"
