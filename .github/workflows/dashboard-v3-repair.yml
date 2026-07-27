@@ -37,6 +37,7 @@ jobs:
             tar -xzf /tmp/payload.tar.gz
             python .repair/v3/pre_apply.py
             python scripts/apply_v3_repair.py
+            python .repair/v3/post_apply.py
             rm -rf .repair/v3 scripts/apply_v3_repair.py
           } 2>&1 | tee /tmp/repair.log
           status=${PIPESTATUS[0]}
