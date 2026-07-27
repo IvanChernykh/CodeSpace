@@ -13,19 +13,39 @@ permissions:
 jobs:
   quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Build dashboard
+        working-directory: dashboard
+        run: |
+          npm ci
+          npm run build
+          node --check dist/main.js
+      - name: Verify generated dashboard assets
+        run: git diff --exit-code -- dashboard/dist
+      - name: Validate dashboard contracts
+        run: python3 scripts/validate_dashboard_contract.py
       - name: Install pinned Rust toolchain
         run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
       - name: Format
         run: cargo +1.97.1 fmt --all -- --check
       - name: Check
         run: cargo +1.97.1 check --all-targets --locked
-      - name: Clippy correctness
-        run: cargo +1.97.1 clippy --all-targets --locked -- -D clippy::correctness
+      - name: Clippy
+        run: cargo +1.97.1 clippy --all-targets --all-features --locked -- -D warnings
       - name: Unit and integration tests
         run: cargo +1.97.1 test --all-targets --locked
+      - name: Build dashboard runtime binary
+        run: cargo +1.97.1 build --locked
+      - name: Localhost dashboard runtime smoke
+        run: python3 scripts/smoke_dashboard.py
       - name: Validate Pages site
         run: python3 scripts/validate_site.py
       - name: Behavioral self-test
@@ -44,7 +64,7 @@ jobs:
 
   msrv:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
       - name: Install MSRV
