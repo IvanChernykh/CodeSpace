@@ -13,7 +13,7 @@ permissions:
 jobs:
   quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v6
       - name: Set up Node.js
@@ -46,6 +46,17 @@ jobs:
         run: cargo +1.97.1 build --locked
       - name: Localhost dashboard runtime smoke
         run: python3 scripts/smoke_dashboard.py
+      - name: Render dashboard in headless Chrome
+        run: python3 scripts/render_dashboard.py
+      - name: Upload dashboard visual evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dashboard-visual-evidence
+          path: |
+            artifacts/dashboard-overview.png
+            artifacts/dashboard-overview.html
+          if-no-files-found: warn
       - name: Validate Pages site
         run: python3 scripts/validate_site.py
       - name: Behavioral self-test
