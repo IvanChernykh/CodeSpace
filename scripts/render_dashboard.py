@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 from pathlib import Path
 
 HOST = "127.0.0.1"
@@ -17,11 +18,22 @@ PORT = 18081
 
 
 def chrome_binary() -> str:
-    for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser"):
-        resolved = shutil.which(name)
-        if resolved:
+    candidates = (
+        "google-chrome",
+        "google-chrome-stable",
+        "chromium",
+        "chromium-browser",
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium",
+    )
+    for name in candidates:
+        resolved = shutil.which(name) if not name.startswith("/") else name
+        if resolved and Path(resolved).is_file():
             return resolved
-    raise RuntimeError("a Chromium-compatible browser is required for visual dashboard validation")
+    raise RuntimeError(
+        "a Chromium-compatible browser is required; checked: " + ", ".join(candidates)
+    )
 
 
 def wait_for_server(process: subprocess.Popen[str]) -> None:
@@ -102,6 +114,7 @@ def run() -> None:
                 "--headless=new",
                 "--no-sandbox",
                 "--disable-gpu",
+                "--disable-dev-shm-usage",
                 "--hide-scrollbars",
                 "--window-size=1440,1000",
                 "--force-device-scale-factor=1",
@@ -116,7 +129,9 @@ def run() -> None:
                 timeout=30,
             )
             if result.returncode != 0:
-                raise RuntimeError(f"Chrome screenshot failed: {result.stderr}")
+                raise RuntimeError(
+                    f"Chrome screenshot failed with {result.returncode}: {result.stderr.strip()}"
+                )
             dom = subprocess.run(
                 [*common, "--dump-dom", url],
                 check=False,
@@ -126,12 +141,21 @@ def run() -> None:
                 timeout=30,
             )
             if dom.returncode != 0:
-                raise RuntimeError(f"Chrome DOM render failed: {dom.stderr}")
+                raise RuntimeError(
+                    f"Chrome DOM render failed with {dom.returncode}: {dom.stderr.strip()}"
+                )
             dom_path.write_text(dom.stdout, encoding="utf-8")
             if "CodeSpace — IDE Assistant" not in dom.stdout or "Command Center" not in dom.stdout:
                 raise RuntimeError("rendered DOM is missing dashboard identity")
             if 'data-state="online"' not in dom.stdout:
-                raise RuntimeError("rendered dashboard did not reach the online state")
+                state_fragment = "connectionChip missing"
+                marker = 'id="connectionChip"'
+                position = dom.stdout.find(marker)
+                if position >= 0:
+                    state_fragment = dom.stdout[position : position + 240]
+                raise RuntimeError(
+                    "rendered dashboard did not reach the online state: " + state_fragment
+                )
             width, height = png_dimensions(screenshot)
             if (width, height) != (1440, 1000):
                 raise RuntimeError(f"unexpected screenshot dimensions: {width}x{height}")
@@ -146,8 +170,18 @@ def run() -> None:
 
 
 if __name__ == "__main__":
+    repository = Path(__file__).resolve().parents[1]
+    artifacts = repository / "artifacts"
+    artifacts.mkdir(exist_ok=True)
+    error_path = artifacts / "dashboard-render-error.txt"
     try:
         run()
-    except Exception as error:  # visual gate must report complete failure evidence
-        print(f"dashboard visual render failed: {error}", file=sys.stderr)
+        error_path.unlink(missing_ok=True)
+    except Exception as error:  # visual gate must preserve complete failure evidence
+        evidence = (
+            f"dashboard visual render failed: {error}\n\n"
+            f"{traceback.format_exc()}"
+        )
+        error_path.write_text(evidence, encoding="utf-8")
+        print(evidence, file=sys.stderr)
         raise
