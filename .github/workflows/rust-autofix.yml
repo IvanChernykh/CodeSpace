@@ -28,8 +28,17 @@ jobs:
       - name: Install dashboard toolchain
         working-directory: dashboard
         run: npm ci
-      - name: Apply final product polish
-        run: python3 scripts/finalize_product.py
+      - name: Repair finalizer whitespace and apply product polish
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/finalize_product.py')
+          content = path.read_text(encoding='utf-8')
+          content = content.replace('\n cse init\n cse context --query', '\ncse init\ncse context --query')
+          content = content.replace('\n cse init\n cse dashboard\n cse context --query', '\ncse init\ncse dashboard\ncse context --query')
+          path.write_text(content, encoding='utf-8')
+          PY
+          python3 scripts/finalize_product.py
       - name: Build dashboard assets
         working-directory: dashboard
         run: npm run build
