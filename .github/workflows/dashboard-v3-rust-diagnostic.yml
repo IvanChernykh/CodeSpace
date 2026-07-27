@@ -1,0 +1,53 @@
+name: CodeSpace v3 Rust diagnostic
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Reproduce Rust failure with compact output
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --quiet --depth 1 --branch fix/dashboard-v3-stability https://github.com/IvanChernykh/CodeSpace.git repo
+          cd repo
+          cat \
+            .repair/v3/chunk-00 .repair/v3/chunk-01 .repair/v3/chunk-02 .repair/v3/chunk-03 \
+            .repair/v3/chunk-04a .repair/v3/chunk-04b \
+            .repair/v3/chunk-05a .repair/v3/chunk-05b \
+            .repair/v3/chunk-06a .repair/v3/chunk-06b \
+            .repair/v3/chunk-07a .repair/v3/chunk-07b \
+            .repair/v3/chunk-08a .repair/v3/chunk-08b > /tmp/payload.b64
+          base64 --decode /tmp/payload.b64 > /tmp/payload.tar.gz
+          echo "9145789e504649860b5165003e860d913ec19969b9a62073150d8733fec7239b  /tmp/payload.tar.gz" | sha256sum --check -
+          tar -xzf /tmp/payload.tar.gz
+          python scripts/apply_v3_repair.py
+          cargo fmt --all
+          rustc --version
+          cargo --version
+
+          if ! cargo check --locked > /tmp/check.log 2>&1; then
+            echo "=== CARGO CHECK FAILURE ==="
+            tail -n 55 /tmp/check.log
+            exit 1
+          fi
+          if ! cargo test --locked --all-targets > /tmp/test.log 2>&1; then
+            echo "=== CARGO TEST FAILURE ==="
+            tail -n 55 /tmp/test.log
+            exit 1
+          fi
+          if ! cargo clippy --locked --all-targets --all-features -- -D warnings > /tmp/clippy.log 2>&1; then
+            echo "=== CARGO CLIPPY FAILURE ==="
+            tail -n 55 /tmp/clippy.log
+            exit 1
+          fi
+          echo "Rust diagnostic passed"
