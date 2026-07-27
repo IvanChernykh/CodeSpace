@@ -50,7 +50,7 @@ jobs:
       - name: Validate dashboard and public site
         run: |
           python3 scripts/validate_dashboard_contract.py
-          python3 scripts/validate_pages.py
+          python3 scripts/validate_site.py
       - name: Install pinned Rust toolchain
         run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
       - name: Format and validate product source
