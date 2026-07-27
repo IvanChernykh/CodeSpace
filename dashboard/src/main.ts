@@ -332,6 +332,11 @@ class ConnectionController {
 
   constructor(private readonly api: ApiClient, private readonly onEvent: (event: JsonObject) => void) {}
 
+  confirmOnline(): void {
+    this.lastEventAt = Date.now();
+    this.setState("online", "Local runtime healthy");
+  }
+
   start(): void {
     this.setState("starting", "Starting local runtime");
     this.connectEvents();
@@ -738,7 +743,10 @@ class CodeSpaceApp {
     this.stats = results[1].status === "fulfilled" ? results[1].value : null;
     this.workspaces = results[2].status === "fulfilled" ? results[2].value : null;
     this.graph = results[3].status === "fulfilled" ? results[3].value : null;
-    if (health) $("#runtimeVersion").textContent = `v${health.version}`;
+    if (health) {
+      $("#runtimeVersion").textContent = `v${health.version}`;
+      this.connection.confirmOnline();
+    }
     this.renderOverview();
     this.renderWorkspaceSwitcher();
     void this.loadOverviewSubsystems();
