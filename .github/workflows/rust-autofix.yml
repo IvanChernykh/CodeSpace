@@ -14,34 +14,40 @@ jobs:
   fix:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
-          show-progress: false
-      - name: Persist compact self-test diagnosis
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+      - name: Apply deterministic formatting and machine-applicable fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo +1.97.1 fmt --all
+          cargo +1.97.1 fix --all-targets --allow-dirty --allow-staged --locked || true
+          cargo +1.97.1 clippy --fix --all-targets --allow-dirty --allow-staged --locked -- -W clippy::correctness || true
+          cargo +1.97.1 fmt --all
+      - name: Validate resulting Rust source
+        run: |
+          cargo +1.97.1 check --all-targets --locked
+          cargo +1.97.1 test --all-targets --locked
+          cargo +1.97.1 clippy --all-targets --all-features --locked -- -D warnings
+      - name: Commit safe fixes to pull-request branch
+        if: github.event_name == 'pull_request'
         env:
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/patch_self_test_v2.py
-          if python3 scripts/self_test.py > /tmp/self-test.log 2>&1; then
-            printf 'self-test unexpectedly passed during diagnosis\n' > .self-test-failure.log
-          else
-            {
-              echo '=== SELF-TEST FAILURE SUMMARY ==='
-              grep -n '\[FAIL\]' /tmp/self-test.log || true
-              echo '=== SELF-TEST FAILURE TAIL ==='
-              tail -n 80 /tmp/self-test.log
-            } > .self-test-failure.log
+          if git diff --quiet; then
+            echo "No machine-applicable changes were required."
+            exit 0
           fi
-          rm -f .autofix-trigger
-          git restore --worktree --staged artifacts 2>/dev/null || true
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "ci: persist compact CodeSpace self-test diagnosis"
+          git commit -m "Apply rustfmt and machine-applicable Rust fixes"
           git push origin "HEAD:${HEAD_REF}"
