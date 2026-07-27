@@ -417,6 +417,10 @@ def check_structure(root: Path) -> str:
         ".github/workflows/ci.yml", ".github/workflows/release.yml",
         ".github/workflows/pages.yml", "site/index.html", "site/styles.css",
         "site/app.js", "scripts/validate_site.py",
+        "dashboard/package.json", "dashboard/package-lock.json",
+        "dashboard/tsconfig.json", "dashboard/src/main.ts",
+        "dashboard/dist/main.js", "dashboard/dist/dashboard.css",
+        "scripts/validate_dashboard_contract.py", "scripts/smoke_dashboard.py",
     ]
     missing = [path for path in required if not (root / path).exists()]
     assert not missing, f"missing files: {missing}"
@@ -461,12 +465,26 @@ def check_security_invariants(root: Path) -> str:
 def check_mcp(root: Path) -> str:
     schema = extract_mcp_schema(root)
     names = [tool["name"] for tool in schema["tools"]]
-    assert names == ["cse_search", "cse_context", "cse_impact", "cse_history", "cse_read"]
+    assert names == [
+        "cse_search",
+        "cse_context",
+        "cse_impact",
+        "cse_history",
+        "cse_read",
+        "cse_chat",
+        "cse_task_add",
+        "cse_task_list",
+        "cse_task_remove",
+        "cse_task_status",
+        "cse_github_status",
+        "cse_github_issues",
+    ]
     for tool in schema["tools"]:
         assert tool["inputSchema"]["type"] == "object"
         assert tool["description"]
     source = (root / "src/mcp.rs").read_text(encoding="utf-8")
-    assert '"2025-11-25"' in source and '"2025-06-18"' in source
+    for version in ["2025-11-25", "2025-06-18", "2024-11-05"]:
+        assert f'"{version}"' in source
     return f"valid JSON schemas for {len(names)} tools; version negotiation present"
 
 
@@ -567,7 +585,7 @@ def write_reports(root: Path, suite: Suite, metrics: dict, started: float) -> No
     artifacts.mkdir(exist_ok=True)
     (artifacts / "self-test-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     rows = [
-        "# CodeSpace 1.0 self-test report", "", f"Status: **{report['status'].upper()}**", "",
+        "# CodeSpace 2.0 self-test report", "", f"Status: **{report['status'].upper()}**", "",
         "| Check | Status | Evidence | Duration |", "|---|---:|---|---:|",
     ]
     for check in suite.checks:
