@@ -892,13 +892,7 @@ class CodeSpaceApp {
     }));
   }
 
-  private async loadOverviewSubsystems(): Promise<void> {
-    const [skillsResult, mcpResult, settingsResult, githubResult] = await Promise.allSettled([
-      this.api.skills(),
-      this.api.mcp(),
-      this.api.settings(),
-      this.api.githubStatus(),
-    ]);
+  private loadOverviewSubsystems(): void {
     const setStatus = (primaryId: string, healthId: string, label: string, tone: "success" | "warning" | "neutral"): void => {
       $(primaryId).textContent = label;
       $(healthId).textContent = label;
@@ -907,40 +901,30 @@ class CodeSpaceApp {
       else healthRow?.setAttribute("data-tone", tone);
     };
 
-    if (skillsResult.status === "fulfilled") {
-      const enabled = skillsResult.value.skills.filter((skill) => skill.enabled).length;
-      const total = skillsResult.value.skills.length;
+    void this.api.skills().then((response) => {
+      const enabled = response.skills.filter((skill) => skill.enabled).length;
+      const total = response.skills.length;
       setStatus("#skillsRuntimeStatus", "#skillsHealthText", `${enabled}/${total} enabled`, enabled > 0 ? "success" : "warning");
-    } else {
-      setStatus("#skillsRuntimeStatus", "#skillsHealthText", "Unavailable", "warning");
-    }
+    }).catch(() => setStatus("#skillsRuntimeStatus", "#skillsHealthText", "Unavailable", "warning"));
 
-    if (mcpResult.status === "fulfilled") {
-      const running = mcpResult.value.servers.filter((server) => server.status.toLowerCase() === "running").length;
-      const total = mcpResult.value.servers.length;
+    void this.api.mcp().then((response) => {
+      const running = response.servers.filter((server) => server.status.toLowerCase() === "running").length;
+      const total = response.servers.length;
       const label = total === 0 ? "No servers" : `${running}/${total} running`;
       setStatus("#mcpRuntimeStatus", "#mcpHealthText", label, running > 0 ? "success" : "neutral");
-    } else {
-      setStatus("#mcpRuntimeStatus", "#mcpHealthText", "Unavailable", "warning");
-    }
+    }).catch(() => setStatus("#mcpRuntimeStatus", "#mcpHealthText", "Unavailable", "warning"));
 
-    if (settingsResult.status === "fulfilled") {
-      const effective = settingsResult.value.effective;
+    void this.api.settings().then((response) => {
+      const effective = response.effective;
       const model = text(effective["ollama_model"] ?? effective["ai.model"] ?? effective["model"]);
-      const label = model || "Local Ollama";
-      setStatus("#aiRuntimeStatus", "#aiHealthText", label, model ? "success" : "neutral");
-    } else {
-      setStatus("#aiRuntimeStatus", "#aiHealthText", "Not configured", "warning");
-    }
+      setStatus("#aiRuntimeStatus", "#aiHealthText", model || "Local Ollama", model ? "success" : "neutral");
+    }).catch(() => setStatus("#aiRuntimeStatus", "#aiHealthText", "Not configured", "warning"));
 
-    if (githubResult.status === "fulfilled") {
-      const status = githubResult.value;
+    void this.api.githubStatus().then((status) => {
       const identity = text(status["username"] ?? status["login"] ?? status["user"]);
       const connected = Boolean(status["connected"] ?? status["authenticated"] ?? identity);
       setStatus("#githubRuntimeStatus", "#githubHealthText", connected ? identity || "Connected" : "Optional", connected ? "success" : "neutral");
-    } else {
-      setStatus("#githubRuntimeStatus", "#githubHealthText", "Optional", "neutral");
-    }
+    }).catch(() => setStatus("#githubRuntimeStatus", "#githubHealthText", "Optional", "neutral"));
   }
 
   private renderWorkspaceSwitcher(): void {

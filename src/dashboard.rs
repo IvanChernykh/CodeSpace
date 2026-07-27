@@ -97,10 +97,10 @@ pub fn render_dashboard(token: &str) -> String {
               <div class="surface-body architecture-overview">
                 <div id="overviewRepositoryMap" class="topology-map"><div class="empty-inline">Loading repository topology…</div></div>
                 <div class="runtime-status-grid">
-                  <div class="runtime-status"><span>AI runtime</span><strong id="aiRuntimeStatus">Checking…</strong><small>Repository-aware local inference</small></div>
-                  <div class="runtime-status"><span>Skills</span><strong id="skillsRuntimeStatus">Checking…</strong><small>Controlled engineering capabilities</small></div>
-                  <div class="runtime-status"><span>MCP</span><strong id="mcpRuntimeStatus">Checking…</strong><small>Verified local tool servers</small></div>
-                  <div class="runtime-status"><span>GitHub</span><strong id="githubRuntimeStatus">Checking…</strong><small>Optional delivery integration</small></div>
+                  <div class="runtime-status"><span>AI runtime</span><strong id="aiRuntimeStatus">Local Ollama</strong><small>Repository-aware local inference</small></div>
+                  <div class="runtime-status"><span>Skills</span><strong id="skillsRuntimeStatus">Built-in registry</strong><small>Controlled engineering capabilities</small></div>
+                  <div class="runtime-status"><span>MCP</span><strong id="mcpRuntimeStatus">No servers</strong><small>Verified local tool servers</small></div>
+                  <div class="runtime-status"><span>GitHub</span><strong id="githubRuntimeStatus">Optional</strong><small>Optional delivery integration</small></div>
                 </div>
               </div>
             </article>
@@ -114,10 +114,10 @@ pub fn render_dashboard(token: &str) -> String {
               <div class="surface-header"><div><h3>System health</h3><p>Operational status of the local assistant</p></div></div>
               <div class="surface-body health-list">
                 <div class="health-row" data-tone="warning"><span>Semantic index</span><strong id="indexHealthText">Checking…</strong></div>
-                <div class="health-row"><span>AI runtime</span><strong id="aiHealthText">Checking…</strong></div>
-                <div class="health-row"><span>Skills registry</span><strong id="skillsHealthText">Checking…</strong></div>
-                <div class="health-row"><span>MCP servers</span><strong id="mcpHealthText">Checking…</strong></div>
-                <div class="health-row"><span>GitHub delivery</span><strong id="githubHealthText">Checking…</strong></div>
+                <div class="health-row"><span>AI runtime</span><strong id="aiHealthText">Local Ollama</strong></div>
+                <div class="health-row"><span>Skills registry</span><strong id="skillsHealthText">Built-in registry</strong></div>
+                <div class="health-row"><span>MCP servers</span><strong id="mcpHealthText">No servers</strong></div>
+                <div class="health-row"><span>GitHub delivery</span><strong id="githubHealthText">Optional</strong></div>
                 <div class="health-row" data-tone="success"><span>API exposure</span><strong>127.0.0.1 only</strong></div>
               </div>
             </article>
