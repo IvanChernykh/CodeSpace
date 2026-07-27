@@ -38,6 +38,7 @@ jobs:
             python .repair/v3/pre_apply.py
             python scripts/apply_v3_repair.py
             python .repair/v3/post_apply.py
+            python .repair/v3/test_clippy.py
             rm -rf .repair/v3 scripts/apply_v3_repair.py
           } 2>&1 | tee /tmp/repair.log
           status=${PIPESTATUS[0]}
