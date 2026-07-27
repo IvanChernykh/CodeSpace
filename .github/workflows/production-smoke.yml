@@ -1,0 +1,88 @@
+name: Production smoke
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/production-smoke.yml'
+  workflow_run:
+    workflows: ['Pages']
+    types: [completed]
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-pages-smoke
+  cancel-in-progress: true
+
+jobs:
+  pages:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      SITE_URL: https://ivanchernykh.github.io/CodeSpace/
+    steps:
+      - name: Probe the published product
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          ready=0
+          for attempt in $(seq 1 60); do
+            status=$(curl --silent --show-error --location \
+              --connect-timeout 5 --max-time 20 \
+              --dump-header artifacts/pages-headers.txt \
+              --output artifacts/pages-index.html \
+              --write-out '%{http_code}' \
+              "${SITE_URL}" || true)
+            if [ "$status" = "200" ] \
+              && grep -q '<title>CodeSpace — Local-first context engine for AI coding agents</title>' artifacts/pages-index.html \
+              && grep -q '12 MCP tools' artifacts/pages-index.html \
+              && grep -q 'cse dashboard' artifacts/pages-index.html \
+              && grep -q 'Local dashboard' artifacts/pages-index.html; then
+              ready=1
+              break
+            fi
+            printf 'attempt=%s status=%s\n' "$attempt" "$status"
+            sleep 5
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo 'Published site did not reach the expected product version.' >&2
+            exit 1
+          fi
+      - name: Verify public assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            --connect-timeout 5 --max-time 20 \
+            "${SITE_URL}styles.css" --output artifacts/pages-styles.css
+          curl --fail --silent --show-error --location \
+            --connect-timeout 5 --max-time 20 \
+            "${SITE_URL}app.js" --output artifacts/pages-app.js
+          test "$(wc -c < artifacts/pages-styles.css)" -gt 10000
+          test "$(wc -c < artifacts/pages-app.js)" -gt 1000
+          grep -qi '^content-type: text/html' artifacts/pages-headers.txt
+          node --check artifacts/pages-app.js
+      - name: Record deployment evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            printf 'site=%s\n' "$SITE_URL"
+            printf 'checked_at=%s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            printf 'index_sha256=%s\n' "$(sha256sum artifacts/pages-index.html | cut -d' ' -f1)"
+            printf 'css_sha256=%s\n' "$(sha256sum artifacts/pages-styles.css | cut -d' ' -f1)"
+            printf 'js_sha256=%s\n' "$(sha256sum artifacts/pages-app.js | cut -d' ' -f1)"
+          } | tee artifacts/production-smoke.txt
+      - name: Upload production evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: production-pages-evidence
+          path: artifacts/
+          if-no-files-found: error
