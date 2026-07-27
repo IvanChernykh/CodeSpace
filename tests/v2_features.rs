@@ -1,11 +1,11 @@
 use codespace::application::{ActionContext, ActionParams, ActionRegistry, OutputFormat};
-use codespace::indexer::{build, IndexOptions};
+use codespace::events::{Event, EventType};
+use codespace::indexer::{IndexOptions, build};
 use codespace::model::{Edge, EdgeKind, PrecisionTier};
+use codespace::settings::Settings;
 use codespace::skills::{SkillPermission, SkillRegistry};
 use codespace::storage;
 use codespace::workspace::WorkspaceRegistry;
-use codespace::events::{Event, EventType};
-use codespace::settings::Settings;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -47,8 +47,7 @@ fn action_registry_finds_by_alias() {
 #[test]
 fn action_search_returns_results() {
     let root = temp_project("action-search");
-    build(&root, &IndexOptions::default())
-        .unwrap_or_else(|error| panic!("index: {error}"));
+    build(&root, &IndexOptions::default()).unwrap_or_else(|error| panic!("index: {error}"));
     let graph = storage::load(&root).unwrap_or_else(|error| panic!("load: {error}"));
     let ctx = ActionContext {
         root: root.clone(),
@@ -58,7 +57,8 @@ fn action_search_returns_results() {
     let registry = ActionRegistry::new();
     let mut params = ActionParams::default();
     params.positional.push("greet".to_string());
-    let result = registry.execute("search", &ctx, &params)
+    let result = registry
+        .execute("search", &ctx, &params)
         .unwrap_or_else(|error| panic!("search action: {error}"));
     assert!(result.stdout.contains("greet"));
     let _ = fs::remove_dir_all(root);
@@ -67,8 +67,7 @@ fn action_search_returns_results() {
 #[test]
 fn action_stats_returns_json() {
     let root = temp_project("action-stats");
-    build(&root, &IndexOptions::default())
-        .unwrap_or_else(|error| panic!("index: {error}"));
+    build(&root, &IndexOptions::default()).unwrap_or_else(|error| panic!("index: {error}"));
     let graph = storage::load(&root).unwrap_or_else(|error| panic!("load: {error}"));
     let ctx = ActionContext {
         root: root.clone(),
@@ -76,7 +75,8 @@ fn action_stats_returns_json() {
         format: OutputFormat::Json,
     };
     let registry = ActionRegistry::new();
-    let result = registry.execute("stats", &ctx, &ActionParams::default())
+    let result = registry
+        .execute("stats", &ctx, &ActionParams::default())
         .unwrap_or_else(|error| panic!("stats action: {error}"));
     assert!(result.stdout.contains("files"));
     assert!(result.stdout.contains("index_revision"));
@@ -103,8 +103,14 @@ fn precision_tier_parses_aliases() {
     assert_eq!(PrecisionTier::parse("compiler"), Some(PrecisionTier::Exact));
     assert_eq!(PrecisionTier::parse("lsp"), Some(PrecisionTier::Exact));
     assert_eq!(PrecisionTier::parse("parser"), Some(PrecisionTier::Parser));
-    assert_eq!(PrecisionTier::parse("heuristic"), Some(PrecisionTier::Heuristic));
-    assert_eq!(PrecisionTier::parse("inferred"), Some(PrecisionTier::Inferred));
+    assert_eq!(
+        PrecisionTier::parse("heuristic"),
+        Some(PrecisionTier::Heuristic)
+    );
+    assert_eq!(
+        PrecisionTier::parse("inferred"),
+        Some(PrecisionTier::Inferred)
+    );
     assert_eq!(PrecisionTier::parse("unknown"), None);
 }
 
@@ -113,7 +119,10 @@ fn new_edge_kinds_parse_correctly() {
     assert_eq!(EdgeKind::parse("extends"), Some(EdgeKind::Extends));
     assert_eq!(EdgeKind::parse("test-covers"), Some(EdgeKind::TestCovers));
     assert_eq!(EdgeKind::parse("configures"), Some(EdgeKind::Configures));
-    assert_eq!(EdgeKind::parse("generated-from"), Some(EdgeKind::GeneratedFrom));
+    assert_eq!(
+        EdgeKind::parse("generated-from"),
+        Some(EdgeKind::GeneratedFrom)
+    );
     assert_eq!(EdgeKind::parse("depends-on"), Some(EdgeKind::DependsOn));
 }
 
@@ -121,11 +130,18 @@ fn new_edge_kinds_parse_correctly() {
 fn workspace_registry_register_and_select() {
     let root = temp_project("ws-register");
     let mut registry = WorkspaceRegistry::new();
-    let ws = registry.register(&root, Some("test-ws"))
+    let ws = registry
+        .register(&root, Some("test-ws"))
         .unwrap_or_else(|error| panic!("register: {error}"));
     assert_eq!(ws.name, "test-ws");
     assert!(registry.active().is_some());
-    assert_eq!(registry.active().expect("active").name, "test-ws");
+    assert_eq!(
+        registry
+            .active()
+            .unwrap_or_else(|| panic!("active workspace missing"))
+            .name,
+        "test-ws"
+    );
     let _ = fs::remove_dir_all(root);
 }
 
@@ -134,11 +150,33 @@ fn workspace_registry_remove_updates_active() {
     let root1 = temp_project("ws-rm-1");
     let root2 = temp_project("ws-rm-2");
     let mut registry = WorkspaceRegistry::new();
-    let ws1_id = registry.register(&root1, None).unwrap_or_else(|e| panic!("register1: {e}")).id.clone();
-    let ws2_id = registry.register(&root2, None).unwrap_or_else(|e| panic!("register2: {e}")).id.clone();
-    assert_eq!(registry.active().expect("active").id, ws2_id);
-    registry.remove(&ws2_id).unwrap_or_else(|e| panic!("remove: {e}"));
-    assert_eq!(registry.active().expect("active").id, ws1_id);
+    let ws1_id = registry
+        .register(&root1, None)
+        .unwrap_or_else(|e| panic!("register1: {e}"))
+        .id
+        .clone();
+    let ws2_id = registry
+        .register(&root2, None)
+        .unwrap_or_else(|e| panic!("register2: {e}"))
+        .id
+        .clone();
+    assert_eq!(
+        registry
+            .active()
+            .unwrap_or_else(|| panic!("active workspace missing"))
+            .id,
+        ws2_id
+    );
+    registry
+        .remove(&ws2_id)
+        .unwrap_or_else(|e| panic!("remove: {e}"));
+    assert_eq!(
+        registry
+            .active()
+            .unwrap_or_else(|| panic!("active workspace missing"))
+            .id,
+        ws1_id
+    );
     let _ = fs::remove_dir_all(root1);
     let _ = fs::remove_dir_all(root2);
 }
@@ -157,22 +195,63 @@ fn skill_registry_has_builtins() {
 fn skill_registry_enable_disable() {
     let mut registry = SkillRegistry::new();
     let skills = registry.list();
-    let id = skills.first().expect("no skills").id.clone();
-    registry.disable(&id).unwrap_or_else(|e| panic!("disable: {e}"));
-    assert!(!registry.skills.get(&id).unwrap_or_else(|| panic!("skill missing")).enabled);
-    registry.enable(&id).unwrap_or_else(|e| panic!("enable: {e}"));
-    assert!(registry.skills.get(&id).unwrap_or_else(|| panic!("skill missing")).enabled);
+    let id = skills
+        .first()
+        .unwrap_or_else(|| panic!("no skills registered"))
+        .id
+        .clone();
+    registry
+        .disable(&id)
+        .unwrap_or_else(|e| panic!("disable: {e}"));
+    assert!(
+        !registry
+            .skills
+            .get(&id)
+            .unwrap_or_else(|| panic!("skill missing"))
+            .enabled
+    );
+    registry
+        .enable(&id)
+        .unwrap_or_else(|e| panic!("enable: {e}"));
+    assert!(
+        registry
+            .skills
+            .get(&id)
+            .unwrap_or_else(|| panic!("skill missing"))
+            .enabled
+    );
 }
 
 #[test]
 fn skill_permissions_parse() {
-    assert_eq!(SkillPermission::parse("read-files"), Some(SkillPermission::ReadFiles));
-    assert_eq!(SkillPermission::parse("write-files"), Some(SkillPermission::WriteFiles));
-    assert_eq!(SkillPermission::parse("execute-commands"), Some(SkillPermission::ExecuteCommands));
-    assert_eq!(SkillPermission::parse("network-access"), Some(SkillPermission::NetworkAccess));
-    assert_eq!(SkillPermission::parse("git-operations"), Some(SkillPermission::GitOperations));
-    assert_eq!(SkillPermission::parse("modify-index"), Some(SkillPermission::ModifyIndex));
-    assert_eq!(SkillPermission::parse("manage-workspaces"), Some(SkillPermission::ManageWorkspaces));
+    assert_eq!(
+        SkillPermission::parse("read-files"),
+        Some(SkillPermission::ReadFiles)
+    );
+    assert_eq!(
+        SkillPermission::parse("write-files"),
+        Some(SkillPermission::WriteFiles)
+    );
+    assert_eq!(
+        SkillPermission::parse("execute-commands"),
+        Some(SkillPermission::ExecuteCommands)
+    );
+    assert_eq!(
+        SkillPermission::parse("network-access"),
+        Some(SkillPermission::NetworkAccess)
+    );
+    assert_eq!(
+        SkillPermission::parse("git-operations"),
+        Some(SkillPermission::GitOperations)
+    );
+    assert_eq!(
+        SkillPermission::parse("modify-index"),
+        Some(SkillPermission::ModifyIndex)
+    );
+    assert_eq!(
+        SkillPermission::parse("manage-workspaces"),
+        Some(SkillPermission::ManageWorkspaces)
+    );
     assert_eq!(SkillPermission::parse("unknown"), None);
 }
 
@@ -236,13 +315,11 @@ fn settings_merge_and_chain() {
 #[test]
 fn index_revision_increments_on_build() {
     let root = temp_project("revision");
-    build(&root, &IndexOptions::default())
-        .unwrap_or_else(|error| panic!("first build: {error}"));
+    build(&root, &IndexOptions::default()).unwrap_or_else(|error| panic!("first build: {error}"));
     let graph1 = storage::load(&root).unwrap_or_else(|error| panic!("load1: {error}"));
     let rev1 = graph1.index_revision;
     assert!(rev1 > 0);
-    build(&root, &IndexOptions::default())
-        .unwrap_or_else(|error| panic!("second build: {error}"));
+    build(&root, &IndexOptions::default()).unwrap_or_else(|error| panic!("second build: {error}"));
     let graph2 = storage::load(&root).unwrap_or_else(|error| panic!("load2: {error}"));
     assert!(graph2.index_revision > rev1);
     let _ = fs::remove_dir_all(root);

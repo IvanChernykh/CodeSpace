@@ -99,13 +99,17 @@ impl Event {
     }
 }
 
+type EventSubscriber = Box<dyn Fn(&Event) + Send + Sync>;
+
 pub struct EventBus {
-    subscribers: Vec<Box<dyn Fn(&Event) + Send + Sync>>,
+    subscribers: Vec<EventSubscriber>,
 }
 
 impl EventBus {
     pub fn new() -> Self {
-        Self { subscribers: Vec::new() }
+        Self {
+            subscribers: Vec::new(),
+        }
     }
 
     pub fn subscribe<F>(&mut self, callback: F)

@@ -103,7 +103,9 @@ pub fn parse_source(
         }
 
         if matches!(family, LanguageFamily::Python) {
-            let indent = original_line.len().saturating_sub(original_line.trim_start().len());
+            let indent = original_line
+                .len()
+                .saturating_sub(original_line.trim_start().len());
             while let Some((symbol_id, previous_indent)) = python_indents.last().copied() {
                 if indent > previous_indent || trimmed.starts_with('@') {
                     break;
@@ -159,7 +161,9 @@ pub fn parse_source(
 
             match family {
                 LanguageFamily::Python => {
-                    let indent = original_line.len().saturating_sub(original_line.trim_start().len());
+                    let indent = original_line
+                        .len()
+                        .saturating_sub(original_line.trim_start().len());
                     python_indents.push((id, indent));
                     scopes.push((id, line_number, i64::try_from(indent).unwrap_or(i64::MAX)));
                 }
@@ -285,7 +289,9 @@ pub fn resolve_cross_file_edges(parsed_files: &[ParsedFile]) -> Vec<Edge> {
         for import in &parsed.imports {
             let normalized = import.replace("::", "/").replace('.', "/");
             let candidate = paths.iter().find(|(path, _)| {
-                let without_extension = path.rsplit_once('.').map_or(path.as_str(), |(head, _)| head);
+                let without_extension = path
+                    .rsplit_once('.')
+                    .map_or(path.as_str(), |(head, _)| head);
                 without_extension.ends_with(&normalized)
                     || without_extension.ends_with(&format!("/{normalized}/mod"))
                     || path.ends_with(&format!("/{normalized}.rs"))
@@ -321,7 +327,11 @@ pub fn resolve_cross_file_edges(parsed_files: &[ParsedFile]) -> Vec<Edge> {
                         from: *owner_id,
                         to: target.id,
                         kind: EdgeKind::Calls,
-                        confidence_milli: if target.file_id == parsed.file.id { 900 } else { 700 },
+                        confidence_milli: if target.file_id == parsed.file.id {
+                            900
+                        } else {
+                            700
+                        },
                         precision: crate::model::PrecisionTier::Heuristic,
                         evidence: format!("call: {call_name}"),
                     });
@@ -370,7 +380,11 @@ fn parse_rust_declaration(line: &str) -> Option<(String, SymbolKind, String)> {
     }
     if let Some(rest) = cleaned.strip_prefix("impl ") {
         let name = take_identifier(rest.trim_start_matches('<').trim_start())?;
-        return Some((format!("impl_{name}"), SymbolKind::Module, compact_signature(line)));
+        return Some((
+            format!("impl_{name}"),
+            SymbolKind::Module,
+            compact_signature(line),
+        ));
     }
     None
 }
@@ -378,10 +392,18 @@ fn parse_rust_declaration(line: &str) -> Option<(String, SymbolKind, String)> {
 fn parse_python_declaration(line: &str) -> Option<(String, SymbolKind, String)> {
     let cleaned = line.trim_start_matches("async ");
     if let Some(rest) = cleaned.strip_prefix("def ") {
-        return Some((take_identifier(rest)?, SymbolKind::Function, compact_signature(line)));
+        return Some((
+            take_identifier(rest)?,
+            SymbolKind::Function,
+            compact_signature(line),
+        ));
     }
     if let Some(rest) = cleaned.strip_prefix("class ") {
-        return Some((take_identifier(rest)?, SymbolKind::Class, compact_signature(line)));
+        return Some((
+            take_identifier(rest)?,
+            SymbolKind::Class,
+            compact_signature(line),
+        ));
     }
     None
 }
@@ -422,9 +444,17 @@ fn parse_go_declaration(line: &str) -> Option<(String, SymbolKind, String)> {
     if let Some(rest) = line.strip_prefix("func ") {
         if rest.starts_with('(') {
             let after_receiver = rest.split_once(')')?.1.trim_start();
-            return Some((take_identifier(after_receiver)?, SymbolKind::Method, compact_signature(line)));
+            return Some((
+                take_identifier(after_receiver)?,
+                SymbolKind::Method,
+                compact_signature(line),
+            ));
         }
-        return Some((take_identifier(rest)?, SymbolKind::Function, compact_signature(line)));
+        return Some((
+            take_identifier(rest)?,
+            SymbolKind::Function,
+            compact_signature(line),
+        ));
     }
     if let Some(rest) = line.strip_prefix("type ") {
         let name = take_identifier(rest)?;
@@ -469,11 +499,16 @@ fn parse_clike_declaration(line: &str) -> Option<(String, SymbolKind, String)> {
     {
         let before_paren = cleaned.split_once('(')?.0.trim_end();
         let name = before_paren
-            .split(|character: char| character.is_whitespace() || character == ':' || character == '*')
-            .filter(|part| !part.is_empty())
-            .next_back()?;
+            .split(|character: char| {
+                character.is_whitespace() || character == ':' || character == '*'
+            })
+            .rfind(|part| !part.is_empty())?;
         if is_identifier(name) {
-            return Some((name.to_string(), SymbolKind::Function, compact_signature(line)));
+            return Some((
+                name.to_string(),
+                SymbolKind::Function,
+                compact_signature(line),
+            ));
         }
     }
     None
@@ -481,25 +516,48 @@ fn parse_clike_declaration(line: &str) -> Option<(String, SymbolKind, String)> {
 
 fn parse_ruby_declaration(line: &str) -> Option<(String, SymbolKind, String)> {
     if let Some(rest) = line.strip_prefix("def ") {
-        return Some((take_identifier(rest.trim_start_matches("self."))?, SymbolKind::Function, compact_signature(line)));
+        return Some((
+            take_identifier(rest.trim_start_matches("self."))?,
+            SymbolKind::Function,
+            compact_signature(line),
+        ));
     }
     if let Some(rest) = line.strip_prefix("class ") {
-        return Some((take_identifier(rest)?, SymbolKind::Class, compact_signature(line)));
+        return Some((
+            take_identifier(rest)?,
+            SymbolKind::Class,
+            compact_signature(line),
+        ));
     }
     if let Some(rest) = line.strip_prefix("module ") {
-        return Some((take_identifier(rest)?, SymbolKind::Module, compact_signature(line)));
+        return Some((
+            take_identifier(rest)?,
+            SymbolKind::Module,
+            compact_signature(line),
+        ));
     }
     None
 }
 
 fn parse_shell_declaration(line: &str) -> Option<(String, SymbolKind, String)> {
     if let Some(rest) = line.strip_prefix("function ") {
-        return Some((take_identifier(rest)?, SymbolKind::Function, compact_signature(line)));
+        return Some((
+            take_identifier(rest)?,
+            SymbolKind::Function,
+            compact_signature(line),
+        ));
     }
-    if let Some(name) = line.strip_suffix("() {").or_else(|| line.strip_suffix("(){")) {
+    if let Some(name) = line
+        .strip_suffix("() {")
+        .or_else(|| line.strip_suffix("(){"))
+    {
         let name = name.trim();
         if is_identifier(name) {
-            return Some((name.to_string(), SymbolKind::Function, compact_signature(line)));
+            return Some((
+                name.to_string(),
+                SymbolKind::Function,
+                compact_signature(line),
+            ));
         }
     }
     None
@@ -507,13 +565,25 @@ fn parse_shell_declaration(line: &str) -> Option<(String, SymbolKind, String)> {
 
 fn parse_other_declaration(line: &str) -> Option<(String, SymbolKind, String)> {
     if let Some(rest) = line.strip_prefix("defmodule ") {
-        return Some((take_identifier(rest)?, SymbolKind::Module, compact_signature(line)));
+        return Some((
+            take_identifier(rest)?,
+            SymbolKind::Module,
+            compact_signature(line),
+        ));
     }
     if let Some(rest) = line.strip_prefix("def ") {
-        return Some((take_identifier(rest)?, SymbolKind::Function, compact_signature(line)));
+        return Some((
+            take_identifier(rest)?,
+            SymbolKind::Function,
+            compact_signature(line),
+        ));
     }
     if let Some(rest) = line.strip_prefix("function ") {
-        return Some((take_identifier(rest)?, SymbolKind::Function, compact_signature(line)));
+        return Some((
+            take_identifier(rest)?,
+            SymbolKind::Function,
+            compact_signature(line),
+        ));
     }
     None
 }
@@ -523,12 +593,19 @@ fn parse_import(line: &str, family: LanguageFamily) -> Option<String> {
         LanguageFamily::Rust => line
             .strip_prefix("use ")
             .or_else(|| line.strip_prefix("mod "))
-            .map(|value| value.trim_end_matches(';').split("::{").next().unwrap_or(value)),
+            .map(|value| {
+                value
+                    .trim_end_matches(';')
+                    .split("::{")
+                    .next()
+                    .unwrap_or(value)
+            }),
         LanguageFamily::Python => {
             if let Some(value) = line.strip_prefix("from ") {
                 value.split_whitespace().next()
             } else {
-                line.strip_prefix("import ").and_then(|value| value.split_whitespace().next())
+                line.strip_prefix("import ")
+                    .and_then(|value| value.split_whitespace().next())
             }
         }
         LanguageFamily::JavaScript => {
@@ -656,7 +733,9 @@ fn strip_visibility(line: &str) -> &str {
 fn take_identifier(value: &str) -> Option<String> {
     let identifier: String = value
         .chars()
-        .take_while(|character| character.is_alphanumeric() || *character == '_' || *character == '$')
+        .take_while(|character| {
+            character.is_alphanumeric() || *character == '_' || *character == '$'
+        })
         .collect();
     is_identifier(&identifier).then_some(identifier)
 }
@@ -667,7 +746,8 @@ fn is_identifier(value: &str) -> bool {
         return false;
     };
     (first.is_alphabetic() || first == '_' || first == '$')
-        && chars.all(|character| character.is_alphanumeric() || character == '_' || character == '$')
+        && chars
+            .all(|character| character.is_alphanumeric() || character == '_' || character == '$')
 }
 
 fn compact_signature(line: &str) -> String {
@@ -693,8 +773,12 @@ fn compact_signature(line: &str) -> String {
 
 fn is_doc_line(line: &str, family: LanguageFamily) -> bool {
     match family {
-        LanguageFamily::Rust => line.starts_with("///") || line.starts_with("//!") || line.starts_with("/**"),
-        LanguageFamily::Python | LanguageFamily::Shell | LanguageFamily::Ruby => line.starts_with('#'),
+        LanguageFamily::Rust => {
+            line.starts_with("///") || line.starts_with("//!") || line.starts_with("/**")
+        }
+        LanguageFamily::Python | LanguageFamily::Shell | LanguageFamily::Ruby => {
+            line.starts_with('#')
+        }
         _ => line.starts_with("///") || line.starts_with("/**") || line.starts_with("//"),
     }
 }
@@ -726,24 +810,49 @@ fn opens_scope(line: &str) -> bool {
 }
 
 fn starts_with_control_keyword(line: &str) -> bool {
-    ["if ", "for ", "while ", "switch ", "catch ", "return ", "throw ", "new "]
-        .iter()
-        .any(|prefix| line.starts_with(prefix))
+    [
+        "if ", "for ", "while ", "switch ", "catch ", "return ", "throw ", "new ",
+    ]
+    .iter()
+    .any(|prefix| line.starts_with(prefix))
 }
 
 fn is_call_keyword(name: &str) -> bool {
     matches!(
         name,
-        "if" | "for" | "while" | "match" | "switch" | "catch" | "return" | "sizeof" | "typeof"
-            | "fn" | "function" | "def" | "class" | "struct" | "enum" | "trait" | "interface"
-            | "Some" | "Ok" | "Err" | "println" | "print" | "assert" | "assert_eq" | "vec"
+        "if" | "for"
+            | "while"
+            | "match"
+            | "switch"
+            | "catch"
+            | "return"
+            | "sizeof"
+            | "typeof"
+            | "fn"
+            | "function"
+            | "def"
+            | "class"
+            | "struct"
+            | "enum"
+            | "trait"
+            | "interface"
+            | "Some"
+            | "Ok"
+            | "Err"
+            | "println"
+            | "print"
+            | "assert"
+            | "assert_eq"
+            | "vec"
     )
 }
 
 fn estimate_line_complexity(line: &str) -> u32 {
     let lower = line.to_ascii_lowercase();
     let mut score = 0_u32;
-    for marker in [" if ", "if(", " if(", " else ", " match ", " for ", " while ", " case ", "&&", "||", "? "] {
+    for marker in [
+        " if ", "if(", " if(", " else ", " match ", " for ", " while ", " case ", "&&", "||", "? ",
+    ] {
         score = score.saturating_add(lower.matches(marker).count() as u32);
     }
     score
@@ -788,7 +897,12 @@ mod tests {
         let parsed = parse_source("src/lib.rs", Path::new("src/lib.rs"), source, 1)
             .unwrap_or_else(|| panic!("Rust parser should be selected"));
         assert_eq!(parsed.symbols.len(), 2);
-        assert!(parsed.unresolved_calls.iter().any(|(_, call)| call == "beta"));
+        assert!(
+            parsed
+                .unresolved_calls
+                .iter()
+                .any(|(_, call)| call == "beta")
+        );
     }
 
     #[test]

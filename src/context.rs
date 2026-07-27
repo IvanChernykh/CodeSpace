@@ -33,7 +33,12 @@ pub fn build_context(
     query: &str,
     options: &ContextOptions,
 ) -> Result<ContextBundle> {
-    let hits = find_symbols(graph, query, None, options.max_items.saturating_mul(4).max(16));
+    let hits = find_symbols(
+        graph,
+        query,
+        None,
+        options.max_items.saturating_mul(4).max(16),
+    );
     let mut items = Vec::new();
     let mut warnings = Vec::new();
     let mut source_bytes = 0_usize;
@@ -44,7 +49,9 @@ pub fn build_context(
     let mut selected_per_file: BTreeMap<String, usize> = BTreeMap::new();
 
     if options.max_tokens <= 24 {
-        warnings.push("token budget must exceed the per-item metadata overhead of 24 tokens".to_string());
+        warnings.push(
+            "token budget must exceed the per-item metadata overhead of 24 tokens".to_string(),
+        );
         return Ok(ContextBundle {
             query: query.to_string(),
             generated_unix_ms: now_unix_ms(),
@@ -86,14 +93,20 @@ pub fn build_context(
             source_bytes = source_bytes.saturating_add(bytes.len());
         }
         let lines: Vec<&str> = source.lines().collect();
-        let start = symbol.line_start.saturating_sub(options.neighbor_lines).max(1);
+        let start = symbol
+            .line_start
+            .saturating_sub(options.neighbor_lines)
+            .max(1);
         let end = symbol
             .line_end
             .saturating_add(options.neighbor_lines)
             .min(lines.len().max(1));
         let mut content = compact_lines(&lines, start, end, &file.language);
         if options.include_docs && !symbol.doc.is_empty() {
-            content = format!("// decision-relevant documentation: {}\n{content}", symbol.doc.replace('\n', " "));
+            content = format!(
+                "// decision-relevant documentation: {}\n{content}",
+                symbol.doc.replace('\n', " ")
+            );
         }
         let redacted = if options.redact_secrets {
             redact_secrets(&content)
@@ -106,7 +119,10 @@ pub fn build_context(
         let item_tokens = estimate_tokens(&redacted.content).saturating_add(24);
         if used_tokens.saturating_add(item_tokens) > options.max_tokens {
             if items.is_empty() {
-                let shortened = truncate_to_token_budget(&redacted.content, options.max_tokens.saturating_sub(24));
+                let shortened = truncate_to_token_budget(
+                    &redacted.content,
+                    options.max_tokens.saturating_sub(24),
+                );
                 returned_bytes = returned_bytes.saturating_add(shortened.len());
                 used_tokens = used_tokens.saturating_add(estimate_tokens(&shortened) + 24);
                 items.push(ContextItem {
@@ -140,7 +156,10 @@ pub fn build_context(
     }
 
     if items.is_empty() {
-        warnings.push("no matching symbols found; try a symbol name, file path, or architectural term".to_string());
+        warnings.push(
+            "no matching symbols found; try a symbol name, file path, or architectural term"
+                .to_string(),
+        );
     }
     let total_redactions: usize = items.iter().map(|item| item.redactions).sum();
     if total_redactions > 0 {
@@ -187,7 +206,10 @@ fn compact_lines(lines: &[&str], start: usize, end: usize, language: &str) -> St
             output.push('\n');
         }
         blank_pending = false;
-        output.push_str(&format!("{line_number:>5} | {}\n", collapse_whitespace(line)));
+        output.push_str(&format!(
+            "{line_number:>5} | {}\n",
+            collapse_whitespace(line)
+        ));
     }
     output.trim_end().to_string()
 }
@@ -204,7 +226,11 @@ fn is_nonsemantic_comment(line: &str, language: &str) -> bool {
 }
 
 fn collapse_whitespace(line: &str) -> String {
-    let indentation = line.chars().take_while(|character| character.is_whitespace()).count().min(8);
+    let indentation = line
+        .chars()
+        .take_while(|character| character.is_whitespace())
+        .count()
+        .min(8);
     let body = line.trim();
     let mut output = " ".repeat(indentation);
     let mut previous_space = false;

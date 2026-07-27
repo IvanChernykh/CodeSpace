@@ -30,12 +30,11 @@ jobs:
           cargo +1.97.1 fix --all-targets --allow-dirty --allow-staged --locked || true
           cargo +1.97.1 clippy --fix --all-targets --allow-dirty --allow-staged --locked -- -W clippy::correctness || true
           cargo +1.97.1 fmt --all
-      - name: Validate resulting source
+      - name: Validate resulting Rust source
         run: |
           cargo +1.97.1 check --all-targets --locked
           cargo +1.97.1 test --all-targets --locked
-          python3 scripts/validate_site.py
-          python3 scripts/self_test.py
+          cargo +1.97.1 clippy --all-targets --all-features --locked -- -D warnings
       - name: Commit safe fixes to pull-request branch
         if: github.event_name == 'pull_request'
         env:

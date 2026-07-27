@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#07111f">
   <meta name="color-scheme" content="dark">
-  <meta name="description" content="CodeSpace is a local-first semantic code graph and compact context engine for AI coding agents.">
+  <meta name="description" content="CodeSpace is a local-first repository intelligence platform with a semantic graph, compact AI context, impact analysis, MCP, skills, tasks, memory, and a localhost dashboard.">
   <meta property="og:type" content="website">
   <meta property="og:title" content="CodeSpace — Give AI the code that matters">
   <meta property="og:description" content="Local-first semantic code graph, compact context, impact analysis, and engineering memory in one Rust binary.">
@@ -56,15 +56,15 @@
       <div class="hero-copy reveal">
         <div class="eyebrow"><span class="status-dot"></span> Open source · Rust · Local first</div>
         <h1>Give AI the code<br><span>that actually matters.</span></h1>
-        <p class="hero-lede">CodeSpace builds a live semantic graph of your repository, then returns precise, bounded context instead of dumping the whole codebase into the model.</p>
+        <p class="hero-lede">CodeSpace builds a live semantic graph of your repository and turns it into a complete local control plane: precise AI context, impact analysis, skills, MCP servers, tasks, decisions, and a production-grade localhost dashboard.</p>
         <div class="hero-actions">
           <a class="button button-primary" href="https://github.com/IvanChernykh/CodeSpace">View on GitHub <span aria-hidden="true">↗</span></a>
           <a class="button button-secondary" href="#quickstart">Run locally <span aria-hidden="true">↓</span></a>
         </div>
         <dl class="hero-proof" aria-label="Release evidence">
-          <div><dt>Local-first</dt><dd>No cloud required</dd></div>
-          <div><dt>5 tools</dt><dd>Minimal MCP surface</dd></div>
-          <div><dt>1 binary</dt><dd>CLI · MCP · REST</dd></div>
+          <div><dt>Local-first</dt><dd>Source stays on your machine</dd></div>
+          <div><dt>12 MCP tools</dt><dd>Verified agent interface</dd></div>
+          <div><dt>1 binary</dt><dd>CLI · Dashboard · MCP · REST</dd></div>
         </dl>
       </div>
 
@@ -100,14 +100,14 @@
 
     <section class="trust-strip" aria-label="Core principles">
       <div class="shell trust-track">
-        <span>Semantic graph</span><i></i><span>Context compaction</span><i></i><span>Blast-radius analysis</span><i></i><span>Decision memory</span><i></i><span>MCP-native</span>
+        <span>Semantic graph</span><i></i><span>Context compaction</span><i></i><span>Blast-radius analysis</span><i></i><span>Skills & MCP control</span><i></i><span>Local dashboard</span>
       </div>
     </section>
 
     <section class="section shell" id="capabilities">
       <div class="section-heading reveal">
         <div class="eyebrow">The context layer</div>
-        <h2>One engine. Four hard problems solved.</h2>
+        <h2>One engine. A complete local control plane.</h2>
         <p>CodeSpace turns repository structure into an operational interface for agents, reviewers, and automation.</p>
       </div>
       <div class="feature-grid">
@@ -203,9 +203,9 @@
         <div class="architecture-lines" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
         <div class="architecture-nodes">
           <article><span>CLI</span><strong>cse</strong><small>Fast shell workflows</small></article>
-          <article><span>MCP</span><strong>5 focused tools</strong><small>IDE and agent clients</small></article>
-          <article><span>REST</span><strong>Loopback API</strong><small>Local integrations</small></article>
-          <article><span>RUST</span><strong>Library crate</strong><small>Embed the engine</small></article>
+          <article><span>MCP</span><strong>12 verified tools</strong><small>IDE and agent clients</small></article>
+          <article><span>UI</span><strong>Local dashboard</strong><small>Graph, tasks, skills, servers</small></article>
+          <article><span>API</span><strong>REST + Rust crate</strong><small>Local integrations and embedding</small></article>
         </div>
       </div>
     </section>
@@ -223,8 +223,9 @@
           <pre><code><span class="code-comment"># Install from source</span>
 cargo install --git https://github.com/IvanChernykh/CodeSpace
 
-<span class="code-comment"># Index and retrieve</span>
+<span class="code-comment"># Index, open the control plane, and retrieve</span>
 cse init
+cse dashboard
 cse context --query <span class="code-string">"authentication returns 500"</span></code></pre>
         </div>
       </div>

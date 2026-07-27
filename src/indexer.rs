@@ -1,9 +1,9 @@
 use crate::model::{Error, GraphIndex, IndexStats, Result};
-use crate::parser::{parse_source, resolve_cross_file_edges, ParsedFile};
+use crate::parser::{ParsedFile, parse_source, resolve_cross_file_edges};
 use crate::storage;
 use crate::util::{
-    is_probably_binary, normalized_relative, now_unix_ms, path_matches_pattern, read_ignore_patterns,
-    DEFAULT_MAX_FILE_BYTES,
+    DEFAULT_MAX_FILE_BYTES, is_probably_binary, normalized_relative, now_unix_ms,
+    path_matches_pattern, read_ignore_patterns,
 };
 use std::collections::BTreeSet;
 use std::fs;
@@ -132,7 +132,10 @@ pub fn build(root: &Path, options: &IndexOptions) -> Result<IndexStats> {
 
 fn rebuild_cross_edges(root: &Path, graph: &mut GraphIndex) -> Result<()> {
     graph.edges.retain(|edge| {
-        matches!(edge.kind, crate::model::EdgeKind::Contains | crate::model::EdgeKind::RelatedDecision)
+        matches!(
+            edge.kind,
+            crate::model::EdgeKind::Contains | crate::model::EdgeKind::RelatedDecision
+        )
     });
     let mut parsed_files: Vec<ParsedFile> = Vec::new();
     for file in graph.files.values() {
@@ -210,7 +213,9 @@ fn collect_source_files(
     visited_directories.insert(canonical_root.clone());
     let mut seen_files = BTreeSet::new();
     while let Some(directory) = stack.pop() {
-        let mut entries: Vec<_> = fs::read_dir(&directory)?.filter_map(|entry| entry.ok()).collect();
+        let mut entries: Vec<_> = fs::read_dir(&directory)?
+            .filter_map(|entry| entry.ok())
+            .collect();
         entries.sort_by_key(|entry| entry.file_name());
         for entry in entries {
             let path = entry.path();
@@ -222,7 +227,10 @@ fn collect_source_files(
                 Ok(relative) => relative,
                 Err(_) => continue,
             };
-            if patterns.iter().any(|pattern| path_matches_pattern(&relative, pattern)) {
+            if patterns
+                .iter()
+                .any(|pattern| path_matches_pattern(&relative, pattern))
+            {
                 continue;
             }
 
@@ -262,7 +270,9 @@ fn collect_source_files(
                 }
             } else if file_type.is_file()
                 && crate::parser::detect_language(&path).is_some()
-                && entry.metadata().is_ok_and(|metadata| metadata.len() <= options.max_file_bytes)
+                && entry
+                    .metadata()
+                    .is_ok_and(|metadata| metadata.len() <= options.max_file_bytes)
             {
                 let canonical_file = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
                 if seen_files.insert(canonical_file) {

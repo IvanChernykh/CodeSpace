@@ -64,7 +64,9 @@ pub fn to_json(graph: &GraphIndex) -> String {
 }
 
 pub fn to_graphviz(graph: &GraphIndex) -> String {
-    let mut output = String::from("digraph codespace {\n  rankdir=LR;\n  node [shape=box, fontname=\"monospace\"];\n");
+    let mut output = String::from(
+        "digraph codespace {\n  rankdir=LR;\n  node [shape=box, fontname=\"monospace\"];\n",
+    );
     for file in graph.files.values() {
         output.push_str(&format!(
             "  n{} [label=\"{}\", shape=folder];\n",
@@ -137,5 +139,8 @@ q.oninput=render;kind.onchange=render;render();
 }
 
 fn dot_escape(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n")
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
 }

@@ -174,9 +174,8 @@ fn command_find(args: &ParsedArgs) -> Result<i32> {
         .value("type")
         .or_else(|| args.value("kind"))
         .map(|value| {
-            SymbolKind::parse(value).ok_or_else(|| {
-                Error::InvalidArgument(format!("unknown symbol type `{value}`"))
-            })
+            SymbolKind::parse(value)
+                .ok_or_else(|| Error::InvalidArgument(format!("unknown symbol type `{value}`")))
         })
         .transpose()?;
     let limit = args
@@ -214,7 +213,9 @@ fn command_find(args: &ParsedArgs) -> Result<i32> {
             let Some(symbol) = graph.symbols.get(&hit.symbol_id) else {
                 continue;
             };
-            let path = graph.file_for_symbol(symbol).map_or("", |file| file.path.as_str());
+            let path = graph
+                .file_for_symbol(symbol)
+                .map_or("", |file| file.path.as_str());
             output.push_str(&format!(
                 "{}\t{}\t{}:{}-{}\tscore={}\t{}\n",
                 symbol.kind.as_str(),
@@ -228,7 +229,9 @@ fn command_find(args: &ParsedArgs) -> Result<i32> {
         }
         output
     } else {
-        return Err(Error::InvalidArgument(format!("unsupported format `{format}`")));
+        return Err(Error::InvalidArgument(format!(
+            "unsupported format `{format}`"
+        )));
     };
     write_output(args, &rendered)?;
     Ok((hits.is_empty()) as i32)
@@ -248,7 +251,11 @@ fn command_impact(args: &ParsedArgs) -> Result<i32> {
     let rendered = match args.value("format").map_or("plain", String::as_str) {
         "plain" => crate::impact::render_plain(&report),
         "json" => crate::impact::render_json(&report),
-        other => return Err(Error::InvalidArgument(format!("unsupported format `{other}`"))),
+        other => {
+            return Err(Error::InvalidArgument(format!(
+                "unsupported format `{other}`"
+            )));
+        }
     };
     write_output(args, &rendered)?;
     Ok((report.risk_score >= 80) as i32)
@@ -267,7 +274,11 @@ fn command_history(args: &ParsedArgs) -> Result<i32> {
     let rendered = match args.value("format").map_or("plain", String::as_str) {
         "plain" => crate::memory::render_history_plain(&decisions),
         "json" => crate::memory::render_history_json(&decisions),
-        other => return Err(Error::InvalidArgument(format!("unsupported format `{other}`"))),
+        other => {
+            return Err(Error::InvalidArgument(format!(
+                "unsupported format `{other}`"
+            )));
+        }
     };
     write_output(args, &rendered)?;
     Ok((decisions.is_empty()) as i32)
@@ -288,7 +299,10 @@ fn command_remember(args: &ParsedArgs) -> Result<i32> {
             .value("session")
             .cloned()
             .unwrap_or_else(|| format!("session-{}", now_unix_ms())),
-        agent: args.value("agent").cloned().unwrap_or_else(|| "unknown".to_string()),
+        agent: args
+            .value("agent")
+            .cloned()
+            .unwrap_or_else(|| "unknown".to_string()),
         summary,
         rationale: args.value("rationale").cloned().unwrap_or_default(),
         tags: args
@@ -312,7 +326,12 @@ fn command_remember(args: &ParsedArgs) -> Result<i32> {
 fn command_serve(args: &ParsedArgs) -> Result<i32> {
     let root = root_from_args(args)?;
     let graph = storage::load(&root)?;
-    if args.flag("mcp") || (!args.flag("rest") && !args.flag("dashboard") && !args.flag("server") && args.value("port").is_none()) {
+    if args.flag("mcp")
+        || (!args.flag("rest")
+            && !args.flag("dashboard")
+            && !args.flag("server")
+            && args.value("port").is_none())
+    {
         crate::mcp::serve(&root, graph)?;
         return Ok(0);
     }
@@ -332,7 +351,8 @@ fn command_serve(args: &ParsedArgs) -> Result<i32> {
         .unwrap_or(8080);
     if host != "127.0.0.1" && host != "localhost" && !args.flag("allow-remote") {
         return Err(Error::InvalidArgument(
-            "remote REST binding requires --allow-remote; no authentication is built in".to_string(),
+            "remote REST binding requires --allow-remote; no authentication is built in"
+                .to_string(),
         ));
     }
     crate::rest::serve(&root, graph, &format!("{host}:{port}"))?;
@@ -347,7 +367,11 @@ fn command_export(args: &ParsedArgs) -> Result<i32> {
         "json" => crate::export::to_json(&graph),
         "graphviz" | "dot" => crate::export::to_graphviz(&graph),
         "html" => crate::export::to_html(&graph),
-        other => return Err(Error::InvalidArgument(format!("unsupported export format `{other}`"))),
+        other => {
+            return Err(Error::InvalidArgument(format!(
+                "unsupported export format `{other}`"
+            )));
+        }
     };
     write_output(args, &rendered)?;
     Ok(0)
@@ -357,10 +381,13 @@ fn command_stats(args: &ParsedArgs) -> Result<i32> {
     let root = root_from_args(args)?;
     let graph = storage::load(&root)?;
     let index_bytes = fs::metadata(index_path(&root)).map_or(0, |metadata| metadata.len());
-    let languages = graph.files.values().fold(BTreeMap::<String, usize>::new(), |mut map, file| {
-        *map.entry(file.language.clone()).or_default() += 1;
-        map
-    });
+    let languages = graph
+        .files
+        .values()
+        .fold(BTreeMap::<String, usize>::new(), |mut map, file| {
+            *map.entry(file.language.clone()).or_default() += 1;
+            map
+        });
     if args.value("format").is_some_and(|format| format == "json") || args.flag("json") {
         let language_json = languages
             .iter()
@@ -433,7 +460,9 @@ fn command_doctor(args: &ParsedArgs) -> Result<i32> {
 fn command_benchmark(args: &ParsedArgs) -> Result<i32> {
     let root = root_from_args(args)?;
     let graph = storage::load(&root)?;
-    let query = args.value("query").map_or("architecture context impact", String::as_str);
+    let query = args
+        .value("query")
+        .map_or("architecture context impact", String::as_str);
     let iterations = args
         .value("iterations")
         .and_then(|value| value.parse::<usize>().ok())
@@ -498,7 +527,9 @@ fn command_shell(args: &ParsedArgs) -> Result<i32> {
 }
 
 fn root_from_args(args: &ParsedArgs) -> Result<PathBuf> {
-    let path = args.value("path").map_or_else(|| PathBuf::from("."), |value| PathBuf::from(value));
+    let path = args
+        .value("path")
+        .map_or_else(|| PathBuf::from("."), PathBuf::from);
     canonical_root(&path)
 }
 
@@ -539,7 +570,9 @@ impl ParsedArgs {
             if let Some(long) = argument.strip_prefix("--") {
                 if let Some((key, value)) = long.split_once('=') {
                     parsed.values.insert(key.to_string(), value.to_string());
-                } else if args.get(index + 1).is_some_and(|next| !next.starts_with('-'))
+                } else if args
+                    .get(index + 1)
+                    .is_some_and(|next| !next.starts_with('-'))
                     && option_expects_value(long)
                 {
                     index += 1;
@@ -556,7 +589,9 @@ impl ParsedArgs {
                     "-h" => "help",
                     "-V" => "version",
                     other => {
-                        return Err(Error::InvalidArgument(format!("unknown short option `{other}`")));
+                        return Err(Error::InvalidArgument(format!(
+                            "unknown short option `{other}`"
+                        )));
                     }
                 };
                 if matches!(key, "help" | "version") {
@@ -684,20 +719,20 @@ fn command_workspace(args: &ParsedArgs) -> Result<i32> {
             let registry = crate::workspace::load_global_registry();
             if args.value("format").is_some_and(|f| f == "json") {
                 println!("{}", registry.to_json());
+            } else if registry.list().is_empty() {
+                println!(
+                    "No workspaces registered. Use `cse workspace register <path>` to add one."
+                );
             } else {
-                if registry.list().is_empty() {
-                    println!("No workspaces registered. Use `cse workspace register <path>` to add one.");
-                } else {
-                    for ws in registry.list() {
-                        let active = registry.active_id.as_deref() == Some(ws.id.as_str());
-                        println!(
-                            "{}  {}  {}{}",
-                            if active { "*" } else { " " },
-                            ws.name,
-                            ws.path,
-                            if active { " (active)" } else { "" }
-                        );
-                    }
+                for ws in registry.list() {
+                    let active = registry.active_id.as_deref() == Some(ws.id.as_str());
+                    println!(
+                        "{}  {}  {}{}",
+                        if active { "*" } else { " " },
+                        ws.name,
+                        ws.path,
+                        if active { " (active)" } else { "" }
+                    );
                 }
             }
             Ok(0)
@@ -717,7 +752,9 @@ fn command_workspace(args: &ParsedArgs) -> Result<i32> {
         "remove" | "rm" => {
             let id = args.positionals.get(1).map_or("", String::as_str);
             if id.is_empty() {
-                return Err(Error::InvalidArgument("workspace remove requires <id>".to_string()));
+                return Err(Error::InvalidArgument(
+                    "workspace remove requires <id>".to_string(),
+                ));
             }
             let mut registry = crate::workspace::load_global_registry();
             registry.remove(id)?;
@@ -728,7 +765,9 @@ fn command_workspace(args: &ParsedArgs) -> Result<i32> {
         "select" => {
             let id = args.positionals.get(1).map_or("", String::as_str);
             if id.is_empty() {
-                return Err(Error::InvalidArgument("workspace select requires <id>".to_string()));
+                return Err(Error::InvalidArgument(
+                    "workspace select requires <id>".to_string(),
+                ));
             }
             let mut registry = crate::workspace::load_global_registry();
             registry.select(id)?;
@@ -749,20 +788,18 @@ fn command_skills(args: &ParsedArgs) -> Result<i32> {
         "list" | "ls" => {
             if args.value("format").is_some_and(|f| f == "json") {
                 println!("{}", registry.to_json());
+            } else if registry.list().is_empty() {
+                println!("No skills installed.");
             } else {
-                if registry.list().is_empty() {
-                    println!("No skills installed.");
-                } else {
-                    for skill in registry.list() {
-                        println!(
-                            "{}  {}  v{}  {}  {}",
-                            if skill.enabled { "+" } else { "-" },
-                            skill.manifest.name,
-                            skill.manifest.version,
-                            skill.manifest.description,
-                            skill.source
-                        );
-                    }
+                for skill in registry.list() {
+                    println!(
+                        "{}  {}  v{}  {}  {}",
+                        if skill.enabled { "+" } else { "-" },
+                        skill.manifest.name,
+                        skill.manifest.version,
+                        skill.manifest.description,
+                        skill.source
+                    );
                 }
             }
             Ok(0)
@@ -770,27 +807,36 @@ fn command_skills(args: &ParsedArgs) -> Result<i32> {
         "enable" => {
             let id = args.positionals.get(1).map_or("", String::as_str);
             if id.is_empty() {
-                return Err(Error::InvalidArgument("skills enable requires <id>".to_string()));
+                return Err(Error::InvalidArgument(
+                    "skills enable requires <id>".to_string(),
+                ));
             }
             registry.enable(id)?;
+            crate::skills::save_skill_registry(&registry)?;
             println!("Enabled skill {id}");
             Ok(0)
         }
         "disable" => {
             let id = args.positionals.get(1).map_or("", String::as_str);
             if id.is_empty() {
-                return Err(Error::InvalidArgument("skills disable requires <id>".to_string()));
+                return Err(Error::InvalidArgument(
+                    "skills disable requires <id>".to_string(),
+                ));
             }
             registry.disable(id)?;
+            crate::skills::save_skill_registry(&registry)?;
             println!("Disabled skill {id}");
             Ok(0)
         }
         "uninstall" | "rm" => {
             let id = args.positionals.get(1).map_or("", String::as_str);
             if id.is_empty() {
-                return Err(Error::InvalidArgument("skills uninstall requires <id>".to_string()));
+                return Err(Error::InvalidArgument(
+                    "skills uninstall requires <id>".to_string(),
+                ));
             }
             registry.uninstall(id)?;
+            crate::skills::save_skill_registry(&registry)?;
             println!("Uninstalled skill {id}");
             Ok(0)
         }
@@ -827,7 +873,9 @@ fn command_settings(args: &ParsedArgs) -> Result<i32> {
             let key = args.positionals.get(1).map_or("", String::as_str);
             let value = args.positionals.get(2).map_or("", String::as_str);
             if key.is_empty() {
-                return Err(Error::InvalidArgument("settings set requires <key> <value>".to_string()));
+                return Err(Error::InvalidArgument(
+                    "settings set requires <key> <value>".to_string(),
+                ));
             }
             let scope = args.value("scope").map_or("global", String::as_str);
             match scope {
@@ -844,7 +892,11 @@ fn command_settings(args: &ParsedArgs) -> Result<i32> {
                     crate::settings::save_workspace_settings(&root, &settings)?;
                     println!("Set workspace {key}={value}");
                 }
-                other => return Err(Error::InvalidArgument(format!("unknown scope `{other}`; use global or workspace"))),
+                other => {
+                    return Err(Error::InvalidArgument(format!(
+                        "unknown scope `{other}`; use global or workspace"
+                    )));
+                }
             }
             Ok(0)
         }
@@ -860,21 +912,33 @@ fn command_read(args: &ParsedArgs) -> Result<i32> {
     if file.is_empty() {
         return Err(Error::InvalidArgument("read requires <file>".to_string()));
     }
-    let max_lines = args.value("max-lines").and_then(|v| v.parse().ok()).unwrap_or(400).clamp(1, 5_000);
+    let max_lines = args
+        .value("max-lines")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(400)
+        .clamp(1, 5_000);
     let path = root.join(file);
     let canonical = fs::canonicalize(&path)?;
     let relative = crate::util::normalized_relative(&root, &canonical)?;
-    if relative == ".git" || relative == ".codespace"
-        || relative.starts_with(".git/") || relative.starts_with(".codespace/")
+    if relative == ".git"
+        || relative == ".codespace"
+        || relative.starts_with(".git/")
+        || relative.starts_with(".codespace/")
     {
-        return Err(Error::InvalidArgument("reading internal metadata is blocked".to_string()));
+        return Err(Error::InvalidArgument(
+            "reading internal metadata is blocked".to_string(),
+        ));
     }
     let metadata = fs::metadata(&canonical)?;
     if !metadata.is_file() {
-        return Err(Error::InvalidArgument("requested path is not a regular file".to_string()));
+        return Err(Error::InvalidArgument(
+            "requested path is not a regular file".to_string(),
+        ));
     }
     if metadata.len() > 2_097_152 {
-        return Err(Error::InvalidArgument("file exceeds 2 MiB read limit".to_string()));
+        return Err(Error::InvalidArgument(
+            "file exceeds 2 MiB read limit".to_string(),
+        ));
     }
     let bytes = fs::read(canonical)?;
     let content = String::from_utf8_lossy(&bytes);
@@ -902,9 +966,17 @@ fn command_graph(args: &ParsedArgs) -> Result<i32> {
         "json" => crate::export::to_json(&graph),
         "summary" => format!(
             "files: {}, symbols: {}, edges: {}, decisions: {}, revision: {}",
-            graph.files.len(), graph.symbols.len(), graph.edges.len(), graph.decisions.len(), graph.index_revision
+            graph.files.len(),
+            graph.symbols.len(),
+            graph.edges.len(),
+            graph.decisions.len(),
+            graph.index_revision
         ),
-        other => return Err(Error::InvalidArgument(format!("unsupported format `{other}`"))),
+        other => {
+            return Err(Error::InvalidArgument(format!(
+                "unsupported format `{other}`"
+            )));
+        }
     };
     write_output(args, &rendered)?;
     Ok(0)
@@ -940,7 +1012,11 @@ fn command_chat(args: &ParsedArgs) -> Result<i32> {
 
 fn command_task(args: &ParsedArgs) -> Result<i32> {
     let root = root_from_args(args)?;
-    let sub = args.positionals.first().map(String::as_str).unwrap_or("list");
+    let sub = args
+        .positionals
+        .first()
+        .map(String::as_str)
+        .unwrap_or("list");
     let mut board = crate::tasks::load_tasks(&root);
 
     match sub {
@@ -953,7 +1029,10 @@ fn command_task(args: &ParsedArgs) -> Result<i32> {
             if format == "json" {
                 println!("{}", board.to_json());
             } else {
-                println!("{:<20} {:<12} {:<10} {:<40}", "ID", "STATUS", "PRIORITY", "TITLE");
+                println!(
+                    "{:<20} {:<12} {:<10} {:<40}",
+                    "ID", "STATUS", "PRIORITY", "TITLE"
+                );
                 println!("{}", "-".repeat(82));
                 for task in board.list() {
                     println!(
@@ -967,14 +1046,17 @@ fn command_task(args: &ParsedArgs) -> Result<i32> {
             }
         }
         "add" | "new" | "create" => {
-            let title = args.value("title")
+            let title = args
+                .value("title")
                 .ok_or_else(|| Error::InvalidArgument("--title required".to_string()))?;
             let description = args.value("description").map(String::as_str).unwrap_or("");
-            let priority = args.value("priority")
+            let priority = args
+                .value("priority")
                 .and_then(|p| crate::tasks::TaskPriority::parse(p))
                 .unwrap_or(crate::tasks::TaskPriority::Medium);
             let due = args.value("due").and_then(|d| d.parse::<u128>().ok());
-            let tags: Vec<String> = args.value("tags")
+            let tags: Vec<String> = args
+                .value("tags")
                 .map(|t| t.split(',').map(String::from).collect())
                 .unwrap_or_default();
             let task = board.add(title, description, priority, due, tags);
@@ -984,7 +1066,8 @@ fn command_task(args: &ParsedArgs) -> Result<i32> {
             println!("Created task: {task_id} - {task_title}");
         }
         "remove" | "rm" | "delete" => {
-            let id = args.value("id")
+            let id = args
+                .value("id")
                 .or_else(|| args.positionals.get(1))
                 .ok_or_else(|| Error::InvalidArgument("task id required".to_string()))?;
             board.remove(id)?;
@@ -992,12 +1075,18 @@ fn command_task(args: &ParsedArgs) -> Result<i32> {
             println!("Removed task: {id}");
         }
         "status" => {
-            let id = args.value("id")
+            let id = args
+                .value("id")
                 .or_else(|| args.positionals.get(1))
                 .ok_or_else(|| Error::InvalidArgument("task id required".to_string()))?;
-            let status = args.value("status")
+            let status = args
+                .value("status")
                 .or_else(|| args.positionals.get(2))
-                .ok_or_else(|| Error::InvalidArgument("status required (todo|in_progress|done|cancelled)".to_string()))?;
+                .ok_or_else(|| {
+                    Error::InvalidArgument(
+                        "status required (todo|in_progress|done|cancelled)".to_string(),
+                    )
+                })?;
             let status = crate::tasks::TaskStatus::parse(status)
                 .ok_or_else(|| Error::InvalidArgument(format!("invalid status: {status}")))?;
             board.set_status(id, status)?;
@@ -1005,12 +1094,18 @@ fn command_task(args: &ParsedArgs) -> Result<i32> {
             println!("Updated task {id} -> {status:?}");
         }
         "priority" => {
-            let id = args.value("id")
+            let id = args
+                .value("id")
                 .or_else(|| args.positionals.get(1))
                 .ok_or_else(|| Error::InvalidArgument("task id required".to_string()))?;
-            let priority = args.value("priority")
+            let priority = args
+                .value("priority")
                 .or_else(|| args.positionals.get(2))
-                .ok_or_else(|| Error::InvalidArgument("priority required (low|medium|high|critical)".to_string()))?;
+                .ok_or_else(|| {
+                    Error::InvalidArgument(
+                        "priority required (low|medium|high|critical)".to_string(),
+                    )
+                })?;
             let priority = crate::tasks::TaskPriority::parse(priority)
                 .ok_or_else(|| Error::InvalidArgument(format!("invalid priority: {priority}")))?;
             board.set_priority(id, priority)?;
@@ -1024,21 +1119,36 @@ fn command_task(args: &ParsedArgs) -> Result<i32> {
             } else {
                 println!("Upcoming tasks:");
                 for task in tasks {
-                    let due_str = task.due_unix_ms
+                    let due_str = task
+                        .due_unix_ms
                         .map(|d| format!(" (due: {d})"))
                         .unwrap_or_default();
-                    println!("  [{}] {}{} - {}", task.priority.as_str(), task.id, due_str, task.title);
+                    println!(
+                        "  [{}] {}{} - {}",
+                        task.priority.as_str(),
+                        task.id,
+                        due_str,
+                        task.title
+                    );
                 }
             }
         }
-        other => return Err(Error::InvalidArgument(format!("unknown task subcommand: {other}"))),
+        other => {
+            return Err(Error::InvalidArgument(format!(
+                "unknown task subcommand: {other}"
+            )));
+        }
     }
     Ok(0)
 }
 
 fn command_github(args: &ParsedArgs) -> Result<i32> {
     let root = root_from_args(args)?;
-    let sub = args.positionals.first().map(String::as_str).unwrap_or("status");
+    let sub = args
+        .positionals
+        .first()
+        .map(String::as_str)
+        .unwrap_or("status");
 
     match sub {
         "status" => {
@@ -1046,7 +1156,10 @@ fn command_github(args: &ParsedArgs) -> Result<i32> {
             if config.is_configured() {
                 println!("GitHub: linked as @{}", config.username);
                 if !config.default_owner.is_empty() {
-                    println!("Default repo: {}/{}", config.default_owner, config.default_repo);
+                    println!(
+                        "Default repo: {}/{}",
+                        config.default_owner, config.default_repo
+                    );
                 }
             } else {
                 println!("GitHub: not linked");
@@ -1054,9 +1167,11 @@ fn command_github(args: &ParsedArgs) -> Result<i32> {
             }
         }
         "link" => {
-            let token = args.value("token")
+            let token = args
+                .value("token")
                 .ok_or_else(|| Error::InvalidArgument("--token required".to_string()))?;
-            let username = args.value("username")
+            let username = args
+                .value("username")
                 .ok_or_else(|| Error::InvalidArgument("--username required".to_string()))?;
             let config = crate::github_integration::link(&root, token, username)?;
             println!("GitHub linked as @{}", config.username);
@@ -1084,23 +1199,31 @@ fn command_github(args: &ParsedArgs) -> Result<i32> {
             write_output(args, &response)?;
         }
         "create-issue" => {
-            let title = args.value("title")
+            let title = args
+                .value("title")
                 .ok_or_else(|| Error::InvalidArgument("--title required".to_string()))?;
             let body = args.value("body").map(String::as_str).unwrap_or("");
             let owner = args.value("owner").map(String::as_str);
             let repo = args.value("repo").map(String::as_str);
-            let response = crate::github_integration::create_issue(&root, title, body, owner, repo)?;
+            let response =
+                crate::github_integration::create_issue(&root, title, body, owner, repo)?;
             write_output(args, &response)?;
         }
         "set-repo" => {
-            let owner = args.value("owner")
+            let owner = args
+                .value("owner")
                 .ok_or_else(|| Error::InvalidArgument("--owner required".to_string()))?;
-            let repo = args.value("repo")
+            let repo = args
+                .value("repo")
                 .ok_or_else(|| Error::InvalidArgument("--repo required".to_string()))?;
             crate::github_integration::set_default_repo(&root, owner, repo)?;
             println!("Default repo set: {owner}/{repo}");
         }
-        other => return Err(Error::InvalidArgument(format!("unknown github subcommand: {other}"))),
+        other => {
+            return Err(Error::InvalidArgument(format!(
+                "unknown github subcommand: {other}"
+            )));
+        }
     }
     Ok(0)
 }

@@ -13,24 +13,132 @@ permissions:
 jobs:
   quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Build dashboard
+        working-directory: dashboard
+        run: |
+          npm ci
+          npm run build
+          node --check dist/main.js
+      - name: Verify generated dashboard assets
+        run: git diff --exit-code -- dashboard/dist
+      - name: Validate dashboard contracts
+        run: python3 scripts/validate_dashboard_contract.py
       - name: Install pinned Rust toolchain
         run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
       - name: Format
         run: cargo +1.97.1 fmt --all -- --check
       - name: Check
         run: cargo +1.97.1 check --all-targets --locked
-      - name: Clippy correctness
-        run: cargo +1.97.1 clippy --all-targets --locked -- -D clippy::correctness
+      - name: Clippy
+        run: cargo +1.97.1 clippy --all-targets --all-features --locked -- -D warnings
       - name: Unit and integration tests
         run: cargo +1.97.1 test --all-targets --locked
+      - name: Build dashboard runtime binary
+        run: cargo +1.97.1 build --locked
+      - name: Localhost dashboard runtime smoke
+        run: python3 scripts/smoke_dashboard.py
+      - name: Render dashboard in headless Chrome
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts /tmp/codespace-visual/src
+          cat > /tmp/codespace-visual/src/main.rs <<'RS'
+          mod engine;
+          fn main() { println!("{}", engine::status()); }
+          RS
+          cat > /tmp/codespace-visual/src/engine.rs <<'RS'
+          pub fn status() -> &'static str { "ready" }
+          RS
+          printf '# Visual fixture\n' > /tmp/codespace-visual/README.md
+          target/debug/cse init --path /tmp/codespace-visual --force
+          target/debug/cse serve --dashboard --path /tmp/codespace-visual --port 18081 \
+            > /dev/null 2> artifacts/dashboard-server.log &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for _ in $(seq 1 100); do
+            if curl --silent --fail http://127.0.0.1:18081/api/v1/health | grep -q '"status":"ok"'; then
+              ready=1
+              break
+            fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              break
+            fi
+            sleep 0.1
+          done
+          if [ "$ready" -ne 1 ]; then
+            printf 'dashboard did not become ready\n' > artifacts/dashboard-render-error.txt
+            cat artifacts/dashboard-server.log >> artifacts/dashboard-render-error.txt
+            exit 1
+          fi
+          chrome=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)
+          if [ -z "$chrome" ]; then
+            printf 'Chromium-compatible browser not found\n' > artifacts/dashboard-render-error.txt
+            exit 1
+          fi
+          common=(
+            "$chrome" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage
+            --hide-scrollbars --window-size=1440,1000 --force-device-scale-factor=1
+            --timeout=5000
+          )
+          if ! timeout 30s "${common[@]}" \
+            --screenshot=artifacts/dashboard-overview.png \
+            http://127.0.0.1:18081/ \
+            > artifacts/chrome-screenshot.log 2>&1; then
+            printf 'Chrome screenshot failed\n' > artifacts/dashboard-render-error.txt
+            cat artifacts/chrome-screenshot.log >> artifacts/dashboard-render-error.txt
+            exit 1
+          fi
+          if ! timeout 30s "${common[@]}" --dump-dom http://127.0.0.1:18081/ \
+            > artifacts/dashboard-overview.html 2> artifacts/chrome-dom.log; then
+            printf 'Chrome DOM render failed\n' > artifacts/dashboard-render-error.txt
+            cat artifacts/chrome-dom.log >> artifacts/dashboard-render-error.txt
+            exit 1
+          fi
+          grep -q 'CodeSpace — IDE Assistant' artifacts/dashboard-overview.html
+          grep -q 'Command Center' artifacts/dashboard-overview.html
+          if ! grep -q 'data-state="online"' artifacts/dashboard-overview.html; then
+            printf 'Dashboard did not reach online state\n' > artifacts/dashboard-render-error.txt
+            grep -o 'id="connectionChip"[^>]*' artifacts/dashboard-overview.html \
+              >> artifacts/dashboard-render-error.txt || true
+            exit 1
+          fi
+          python3 - <<'PY'
+          import struct
+          from pathlib import Path
+          path = Path('artifacts/dashboard-overview.png')
+          data = path.read_bytes()
+          assert data.startswith(b'\x89PNG\r\n\x1a\n') and len(data) >= 24
+          assert struct.unpack('>II', data[16:24]) == (1440, 1000)
+          PY
+      - name: Upload dashboard visual evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dashboard-visual-evidence
+          path: |
+            artifacts/dashboard-overview.png
+            artifacts/dashboard-overview.html
+            artifacts/dashboard-server.log
+            artifacts/chrome-screenshot.log
+            artifacts/chrome-dom.log
+            artifacts/dashboard-render-error.txt
+          if-no-files-found: error
       - name: Validate Pages site
         run: python3 scripts/validate_site.py
       - name: Behavioral self-test
         run: python3 scripts/self_test.py
       - name: Upload self-test evidence
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: self-test-evidence
@@ -38,13 +146,13 @@ jobs:
             artifacts/self-test-report.json
             artifacts/SELF_TEST.md
             artifacts/self-context.txt
-          if-no-files-found: error
+          if-no-files-found: warn
       - name: Package verification
         run: cargo +1.97.1 package --allow-dirty --locked
 
   msrv:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
       - name: Install MSRV

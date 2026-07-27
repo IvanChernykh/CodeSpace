@@ -23,12 +23,17 @@ pub fn analyze(
                 symbol: "<file unavailable in current index>".to_string(),
                 kind: SymbolKind::Unknown,
                 depth: 0,
-                reason: "file was deleted, renamed, ignored, or is not a supported source type".to_string(),
+                reason: "file was deleted, renamed, ignored, or is not a supported source type"
+                    .to_string(),
             });
             continue;
         };
         let mut matched = false;
-        for symbol in graph.symbols.values().filter(|symbol| symbol.file_id == *file_id) {
+        for symbol in graph
+            .symbols
+            .values()
+            .filter(|symbol| symbol.file_id == *file_id)
+        {
             if lines.is_empty()
                 || lines
                     .iter()
@@ -47,7 +52,11 @@ pub fn analyze(
             }
         }
         if !matched {
-            for symbol in graph.symbols.values().filter(|symbol| symbol.file_id == *file_id) {
+            for symbol in graph
+                .symbols
+                .values()
+                .filter(|symbol| symbol.file_id == *file_id)
+            {
                 changed_ids.insert(symbol.id);
                 changed_symbols.push(ImpactNode {
                     symbol_id: symbol.id,
@@ -69,7 +78,10 @@ pub fn analyze(
             continue;
         }
         for edge in graph.incoming(current) {
-            if !matches!(edge.kind, EdgeKind::Calls | EdgeKind::References | EdgeKind::Imports | EdgeKind::Contains) {
+            if !matches!(
+                edge.kind,
+                EdgeKind::Calls | EdgeKind::References | EdgeKind::Imports | EdgeKind::Contains
+            ) {
                 continue;
             }
             let candidate = edge.from;
@@ -113,10 +125,15 @@ pub fn analyze(
         warnings.push("security-, payment-, or schema-sensitive path changed".to_string());
     }
     if changed_files.iter().any(|path| path.contains("test")) {
-        warnings.push("test files changed; verify that production behavior is independently covered".to_string());
+        warnings.push(
+            "test files changed; verify that production behavior is independently covered"
+                .to_string(),
+        );
     }
     if affected.len() > 50 {
-        warnings.push("wide blast radius; split the change or require targeted regression tests".to_string());
+        warnings.push(
+            "wide blast radius; split the change or require targeted regression tests".to_string(),
+        );
     }
 
     Ok(ImpactReport {
@@ -130,14 +147,27 @@ pub fn analyze(
     })
 }
 
-fn changed_lines(root: &Path, from_ref: &str, to_ref: &str) -> Result<BTreeMap<String, BTreeSet<usize>>> {
+fn changed_lines(
+    root: &Path,
+    from_ref: &str,
+    to_ref: &str,
+) -> Result<BTreeMap<String, BTreeSet<usize>>> {
     let output = Command::new("git")
         .current_dir(root)
-        .args(["diff", "--unified=0", "--no-ext-diff", from_ref, to_ref, "--"])
+        .args([
+            "diff",
+            "--unified=0",
+            "--no-ext-diff",
+            from_ref,
+            to_ref,
+            "--",
+        ])
         .output()
         .map_err(|error| Error::Git(format!("cannot start git: {error}")))?;
     if !output.status.success() {
-        return Err(Error::Git(String::from_utf8_lossy(&output.stderr).trim().to_string()));
+        return Err(Error::Git(
+            String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        ));
     }
     let diff = String::from_utf8_lossy(&output.stdout);
     let mut result: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
@@ -182,11 +212,20 @@ fn compute_risk(changed_files: &[String], changed: &[ImpactNode], affected: &[Im
     score += changed_files.len().saturating_mul(4);
     score += changed.len().saturating_mul(2);
     score += affected.len().min(60);
-    score += affected.iter().map(|node| 4_usize.saturating_sub(node.depth)).sum::<usize>();
-    if changed_files.iter().any(|path| path.contains("auth") || path.contains("security")) {
+    score += affected
+        .iter()
+        .map(|node| 4_usize.saturating_sub(node.depth))
+        .sum::<usize>();
+    if changed_files
+        .iter()
+        .any(|path| path.contains("auth") || path.contains("security"))
+    {
         score += 15;
     }
-    if changed_files.iter().any(|path| path.contains("migration") || path.contains("schema")) {
+    if changed_files
+        .iter()
+        .any(|path| path.contains("migration") || path.contains("schema"))
+    {
         score += 15;
     }
     score.min(100) as u8
@@ -204,7 +243,13 @@ pub fn render_plain(report: &ImpactReport) -> String {
     );
     output.push_str("CHANGED\n");
     for node in &report.changed_symbols {
-        output.push_str(&format!("  {}:{} [{}] {}\n", node.path, node.symbol, node.kind.as_str(), node.reason));
+        output.push_str(&format!(
+            "  {}:{} [{}] {}\n",
+            node.path,
+            node.symbol,
+            node.kind.as_str(),
+            node.reason
+        ));
     }
     output.push_str("\nAFFECTED\n");
     for node in &report.affected {
@@ -246,9 +291,19 @@ pub fn render_json(report: &ImpactReport) -> String {
         crate::util::json_escape(&report.from_ref),
         crate::util::json_escape(&report.to_ref),
         report.risk_score,
-        report.changed_files.iter().map(|path| format!("\"{}\"", crate::util::json_escape(path))).collect::<Vec<_>>().join(","),
+        report
+            .changed_files
+            .iter()
+            .map(|path| format!("\"{}\"", crate::util::json_escape(path)))
+            .collect::<Vec<_>>()
+            .join(","),
         render_nodes(&report.changed_symbols),
         render_nodes(&report.affected),
-        report.warnings.iter().map(|warning| format!("\"{}\"", crate::util::json_escape(warning))).collect::<Vec<_>>().join(",")
+        report
+            .warnings
+            .iter()
+            .map(|warning| format!("\"{}\"", crate::util::json_escape(warning)))
+            .collect::<Vec<_>>()
+            .join(",")
     )
 }

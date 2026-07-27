@@ -1,4 +1,4 @@
-use crate::context::{build_context, render_json as render_context_json, ContextOptions};
+use crate::context::{ContextOptions, build_context, render_json as render_context_json};
 use crate::impact;
 use crate::memory;
 use crate::model::{Error, GraphIndex, Result, SymbolKind};
@@ -38,7 +38,9 @@ pub fn serve(root: &Path, mut graph: GraphIndex) -> Result<()> {
                     graph = reloaded;
                     stamp = current_stamp;
                 }
-                Err(error) => eprintln!("MCP index reload failed; retaining previous snapshot: {error}"),
+                Err(error) => {
+                    eprintln!("MCP index reload failed; retaining previous snapshot: {error}")
+                }
             }
         }
 
@@ -91,7 +93,9 @@ fn handle_message(
         }),
         "initialize" => {
             if request_id.is_none() {
-                return Err(Error::Protocol("initialize must be a request with an id".to_string()));
+                return Err(Error::Protocol(
+                    "initialize must be a request with an id".to_string(),
+                ));
             }
             let requested = extract_json_string(input, "protocolVersion")
                 .unwrap_or_else(|| MCP_PROTOCOL_VERSION.to_string());
@@ -123,7 +127,8 @@ fn handle_message(
                 return Err(Error::Protocol("tools/call must include an id".to_string()));
             }
             let name = required_json_string(input, "name")?;
-            let arguments = extract_json_object(input, "arguments").unwrap_or_else(|| "{}".to_string());
+            let arguments =
+                extract_json_object(input, "arguments").unwrap_or_else(|| "{}".to_string());
             let (text, is_error) = match call_tool(root, graph, &name, &arguments) {
                 Ok(text) => (text, false),
                 Err(error) => (error.to_string(), true),
@@ -145,7 +150,9 @@ fn require_initialized(state: &SessionState) -> Result<()> {
     if state.initialized {
         Ok(())
     } else {
-        Err(Error::Protocol("server has not completed initialization".to_string()))
+        Err(Error::Protocol(
+            "server has not completed initialization".to_string(),
+        ))
     }
 }
 
@@ -165,14 +172,18 @@ fn call_tool(root: &Path, graph: &GraphIndex, name: &str, input: &str) -> Result
                 })?),
                 None => None,
             };
-            let limit = extract_json_number(input, "limit").unwrap_or(20).clamp(1, 200) as usize;
+            let limit = extract_json_number(input, "limit")
+                .unwrap_or(20)
+                .clamp(1, 200) as usize;
             let hits = find_symbols(graph, &query, kind, limit);
             let mut rows = Vec::new();
             for hit in &hits {
                 let Some(symbol) = graph.symbols.get(&hit.symbol_id) else {
                     continue;
                 };
-                let path = graph.file_for_symbol(symbol).map_or("", |file| file.path.as_str());
+                let path = graph
+                    .file_for_symbol(symbol)
+                    .map_or("", |file| file.path.as_str());
                 rows.push(format!(
                     "{{\"id\":{},\"name\":\"{}\",\"qualified_name\":\"{}\",\"kind\":\"{}\",\"path\":\"{}\",\"line_start\":{},\"line_end\":{},\"score_milli\":{},\"reasons\":[{}]}}",
                     symbol.id,
@@ -207,19 +218,25 @@ fn call_tool(root: &Path, graph: &GraphIndex, name: &str, input: &str) -> Result
         "cse_impact" => {
             let from = extract_json_string(input, "from").unwrap_or_else(|| "HEAD~1".to_string());
             let to = extract_json_string(input, "to").unwrap_or_else(|| "HEAD".to_string());
-            let depth = extract_json_number(input, "depth").unwrap_or(3).clamp(1, 10) as usize;
+            let depth = extract_json_number(input, "depth")
+                .unwrap_or(3)
+                .clamp(1, 10) as usize;
             let report = impact::analyze(root, graph, &from, &to, depth)?;
             Ok(impact::render_json(&report))
         }
         "cse_history" => {
             let target = extract_json_string(input, "target").unwrap_or_default();
-            let limit = extract_json_number(input, "limit").unwrap_or(10).clamp(1, 100) as usize;
+            let limit = extract_json_number(input, "limit")
+                .unwrap_or(10)
+                .clamp(1, 100) as usize;
             let decisions = memory::history(graph, &target, limit);
             Ok(memory::render_history_json(&decisions))
         }
         "cse_read" => {
             let file = required_json_string(input, "file")?;
-            let max_lines = extract_json_number(input, "max_lines").unwrap_or(400).clamp(1, 5_000) as usize;
+            let max_lines = extract_json_number(input, "max_lines")
+                .unwrap_or(400)
+                .clamp(1, 5_000) as usize;
             safe_read(root, &file, max_lines)
         }
         "cse_chat" => {
@@ -229,12 +246,27 @@ fn call_tool(root: &Path, graph: &GraphIndex, name: &str, input: &str) -> Result
             let context = match extract_json_string(input, "context") {
                 Some(ctx) if !ctx.is_empty() => Some(ctx),
                 _ => {
-                    let bundle = build_context(root, graph, &query, &ContextOptions { max_tokens: 2000, ..Default::default() })?;
+                    let bundle = build_context(
+                        root,
+                        graph,
+                        &query,
+                        &ContextOptions {
+                            max_tokens: 2000,
+                            ..Default::default()
+                        },
+                    )?;
                     let mut parts = Vec::new();
                     for item in &bundle.items {
-                        parts.push(format!("// {} ({}:{})\n{}", item.symbol, item.path, item.line_start, item.content));
+                        parts.push(format!(
+                            "// {} ({}:{})\n{}",
+                            item.symbol, item.path, item.line_start, item.content
+                        ));
                     }
-                    if parts.is_empty() { None } else { Some(parts.join("\n\n")) }
+                    if parts.is_empty() {
+                        None
+                    } else {
+                        Some(parts.join("\n\n"))
+                    }
                 }
             };
             let response = crate::ai::chat(&mut session, &query, context.as_deref())?;
@@ -301,14 +333,20 @@ fn safe_read(root: &Path, requested: &str, max_lines: usize) -> Result<String> {
         || relative.starts_with(".git/")
         || relative.starts_with(".codespace/")
     {
-        return Err(Error::InvalidArgument("reading internal metadata is blocked".to_string()));
+        return Err(Error::InvalidArgument(
+            "reading internal metadata is blocked".to_string(),
+        ));
     }
     let metadata = fs::metadata(&canonical)?;
     if !metadata.is_file() {
-        return Err(Error::InvalidArgument("requested path is not a regular file".to_string()));
+        return Err(Error::InvalidArgument(
+            "requested path is not a regular file".to_string(),
+        ));
     }
     if metadata.len() > 2_097_152 {
-        return Err(Error::InvalidArgument("file exceeds 2 MiB read limit".to_string()));
+        return Err(Error::InvalidArgument(
+            "file exceeds 2 MiB read limit".to_string(),
+        ));
     }
     let bytes = fs::read(canonical)?;
     let content = String::from_utf8_lossy(&bytes);
@@ -419,7 +457,11 @@ fn extract_json_number(input: &str, key: &str) -> Option<i64> {
     if input.as_bytes().get(index) == Some(&b'-') {
         index += 1;
     }
-    while input.as_bytes().get(index).is_some_and(|byte| byte.is_ascii_digit()) {
+    while input
+        .as_bytes()
+        .get(index)
+        .is_some_and(|byte| byte.is_ascii_digit())
+    {
         index += 1;
     }
     input[start..index].parse().ok()
@@ -523,15 +565,24 @@ mod tests {
     fn parses_json_fields() {
         let input = r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"cse_context","arguments":{"query":"login bug","max_tokens":900}}}"#;
         assert_eq!(extract_raw_id(input).as_deref(), Some("7"));
-        assert_eq!(extract_json_string(input, "method").as_deref(), Some("tools/call"));
-        assert_eq!(extract_json_string(input, "query").as_deref(), Some("login bug"));
+        assert_eq!(
+            extract_json_string(input, "method").as_deref(),
+            Some("tools/call")
+        );
+        assert_eq!(
+            extract_json_string(input, "query").as_deref(),
+            Some("login bug")
+        );
         assert_eq!(extract_json_number(input, "max_tokens"), Some(900));
     }
 
     #[test]
     fn parses_surrogate_pair_escape() {
         let input = r#"{"query":"fix \ud83d\udd27"}"#;
-        assert_eq!(extract_json_string(input, "query").as_deref(), Some("fix 🔧"));
+        assert_eq!(
+            extract_json_string(input, "query").as_deref(),
+            Some("fix 🔧")
+        );
     }
 
     #[test]
