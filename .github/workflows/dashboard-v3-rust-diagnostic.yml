@@ -32,7 +32,8 @@ jobs:
             .repair/v3/chunk-06a .repair/v3/chunk-06b \
             .repair/v3/chunk-07a .repair/v3/chunk-07b \
             .repair/v3/chunk-08a \
-            .repair/v3/chunk-08b0 .repair/v3/chunk-08b1 .repair/v3/chunk-08b2 .repair/v3/chunk-08b3 > /tmp/payload.b64
+            .repair/v3/chunk-08b0 .repair/v3/chunk-08b1 .repair/v3/chunk-08b2 \
+            .repair/v3/chunk-08b30 .repair/v3/chunk-08b31 > /tmp/payload.b64
           base64 --decode /tmp/payload.b64 > /tmp/payload.tar.gz
           sha256sum /tmp/payload.tar.gz
           echo "9145789e504649860b5165003e860d913ec19969b9a62073150d8733fec7239b  /tmp/payload.tar.gz" | sha256sum --check -
