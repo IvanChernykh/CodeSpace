@@ -77,7 +77,7 @@ pub fn render_dashboard(token: &str) -> String {
                 <h2>Understand the codebase as a <span>connected system</span>, not a folder tree.</h2>
                 <p>CodeSpace unifies the CLI, localhost dashboard, MCP tools, skills, decisions, tasks, and local AI around one indexed repository state.</p>
                 <div class="repository-identity">
-                  <div class="repo-avatar">R</div>
+                  <div class="repo-avatar" id="repositoryInitial">R</div>
                   <div><strong id="activeRepositoryName">Current directory</strong><code id="activeRepositoryPath">Loading active repository…</code></div>
                 </div>
               </div>
@@ -92,6 +92,19 @@ pub fn render_dashboard(token: &str) -> String {
               </div>
             </article>
 
+            <article class="surface architecture-panel">
+              <div class="surface-header"><div><h3>Architecture pulse</h3><p>Most connected files in the active repository</p></div><button class="button ghost small" data-quick-tab="graph">Open full map</button></div>
+              <div class="surface-body architecture-overview">
+                <div id="overviewRepositoryMap" class="topology-map"><div class="empty-inline">Loading repository topology…</div></div>
+                <div class="runtime-status-grid">
+                  <div class="runtime-status"><span>AI runtime</span><strong id="aiRuntimeStatus">Checking…</strong><small>Repository-aware local inference</small></div>
+                  <div class="runtime-status"><span>Skills</span><strong id="skillsRuntimeStatus">Checking…</strong><small>Controlled engineering capabilities</small></div>
+                  <div class="runtime-status"><span>MCP</span><strong id="mcpRuntimeStatus">Checking…</strong><small>Verified local tool servers</small></div>
+                  <div class="runtime-status"><span>GitHub</span><strong id="githubRuntimeStatus">Checking…</strong><small>Optional delivery integration</small></div>
+                </div>
+              </div>
+            </article>
+
             <article class="surface metric-card"><div class="metric-top"><span>Files</span><span class="metric-icon">▦</span></div><strong id="metricFiles">0</strong><small>indexed repository files</small></article>
             <article class="surface metric-card"><div class="metric-top"><span>Symbols</span><span class="metric-icon">ƒ</span></div><strong id="metricSymbols">0</strong><small>functions, types, modules, tests</small></article>
             <article class="surface metric-card"><div class="metric-top"><span>Relationships</span><span class="metric-icon">⇄</span></div><strong id="metricEdges">0</strong><small>calls, imports, dependencies</small></article>
@@ -101,9 +114,11 @@ pub fn render_dashboard(token: &str) -> String {
               <div class="surface-header"><div><h3>System health</h3><p>Operational status of the local assistant</p></div></div>
               <div class="surface-body health-list">
                 <div class="health-row" data-tone="warning"><span>Semantic index</span><strong id="indexHealthText">Checking…</strong></div>
-                <div class="health-row" data-tone="success"><span>Source boundary</span><strong>Local filesystem</strong></div>
+                <div class="health-row"><span>AI runtime</span><strong id="aiHealthText">Checking…</strong></div>
+                <div class="health-row"><span>Skills registry</span><strong id="skillsHealthText">Checking…</strong></div>
+                <div class="health-row"><span>MCP servers</span><strong id="mcpHealthText">Checking…</strong></div>
+                <div class="health-row"><span>GitHub delivery</span><strong id="githubHealthText">Checking…</strong></div>
                 <div class="health-row" data-tone="success"><span>API exposure</span><strong>127.0.0.1 only</strong></div>
-                <div class="health-row"><span>Live synchronization</span><strong>SSE + health polling</strong></div>
               </div>
             </article>
             <article class="surface languages-panel">

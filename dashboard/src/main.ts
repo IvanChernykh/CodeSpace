@@ -741,6 +741,7 @@ class CodeSpaceApp {
     if (health) $("#runtimeVersion").textContent = `v${health.version}`;
     this.renderOverview();
     this.renderWorkspaceSwitcher();
+    void this.loadOverviewSubsystems();
     if (this.graph) this.renderGraph(this.graph);
     else this.renderGraphError("Index is unavailable. Initialize or update the selected repository.");
     this.clearBusy();
@@ -851,6 +852,95 @@ class CodeSpaceApp {
       : `<div class="empty-inline">No indexed language data</div>`;
     $("#indexHealthText").textContent = graph && graph.files.length > 0 ? "Index ready" : "Index requires attention";
     $("#indexHealthText").parentElement?.setAttribute("data-tone", graph && graph.files.length > 0 ? "success" : "warning");
+    const repositoryName = active?.name ?? graph?.project_root.split(/[\\/]/).pop() ?? "Repository";
+    $("#repositoryInitial").textContent = repositoryName.slice(0, 2).toUpperCase();
+    this.renderOverviewTopology(graph);
+  }
+
+  private renderOverviewTopology(graph: GraphSnapshot | null): void {
+    const root = $("#overviewRepositoryMap");
+    if (!graph || graph.files.length === 0) {
+      root.innerHTML = `<div class="empty-state compact"><span class="empty-icon">◇</span><strong>No topology yet</strong><span>Update the index to build the repository map.</span></div>`;
+      return;
+    }
+    const symbolFiles = new Map(graph.symbols.map((symbol) => [symbol.id, symbol.file_id]));
+    const degree = new Map(graph.files.map((file) => [file.id, 0]));
+    graph.edges.forEach((edge) => {
+      const fromFile = symbolFiles.get(edge.from);
+      const toFile = symbolFiles.get(edge.to);
+      if (fromFile === undefined || toFile === undefined || fromFile === toFile) return;
+      degree.set(fromFile, (degree.get(fromFile) ?? 0) + 1);
+      degree.set(toFile, (degree.get(toFile) ?? 0) + 1);
+    });
+    const topFiles = graph.files
+      .map((file) => ({ file, degree: degree.get(file.id) ?? 0 }))
+      .sort((left, right) => right.degree - left.degree || right.file.line_count - left.file.line_count)
+      .slice(0, 8);
+    const maxDegree = Math.max(1, ...topFiles.map((entry) => entry.degree));
+    root.innerHTML = topFiles.map((entry, index) => {
+      const name = entry.file.path.split("/").pop() ?? entry.file.path;
+      const activity = Math.max(12, Math.round((entry.degree / maxDegree) * 100));
+      return `<button class="topology-node topology-node-${index + 1}" type="button" data-overview-file="${entry.file.id}" style="--activity:${activity}%"><span class="topology-node-language lang-${escapeHtml(entry.file.language.toLowerCase().replace(/[^a-z0-9]+/g, "-"))}"></span><strong>${escapeHtml(name)}</strong><small>${escapeHtml(entry.file.language || "text")} · ${entry.degree} links</small><i></i></button>`;
+    }).join("");
+    $$<HTMLButtonElement>("[data-overview-file]", root).forEach((button) => button.addEventListener("click", () => {
+      const file = graph.files.find((candidate) => candidate.id === Number(button.dataset.overviewFile));
+      if (!file) return;
+      this.switchTab("graph");
+      const filter = $("#graphFilter") as HTMLInputElement;
+      filter.value = file.path;
+      this.graphView.setFilter(file.path);
+    }));
+  }
+
+  private async loadOverviewSubsystems(): Promise<void> {
+    const [skillsResult, mcpResult, settingsResult, githubResult] = await Promise.allSettled([
+      this.api.skills(),
+      this.api.mcp(),
+      this.api.settings(),
+      this.api.githubStatus(),
+    ]);
+    const setStatus = (primaryId: string, healthId: string, label: string, tone: "success" | "warning" | "neutral"): void => {
+      $(primaryId).textContent = label;
+      $(healthId).textContent = label;
+      const healthRow = $(healthId).parentElement;
+      if (tone === "neutral") healthRow?.removeAttribute("data-tone");
+      else healthRow?.setAttribute("data-tone", tone);
+    };
+
+    if (skillsResult.status === "fulfilled") {
+      const enabled = skillsResult.value.skills.filter((skill) => skill.enabled).length;
+      const total = skillsResult.value.skills.length;
+      setStatus("#skillsRuntimeStatus", "#skillsHealthText", `${enabled}/${total} enabled`, enabled > 0 ? "success" : "warning");
+    } else {
+      setStatus("#skillsRuntimeStatus", "#skillsHealthText", "Unavailable", "warning");
+    }
+
+    if (mcpResult.status === "fulfilled") {
+      const running = mcpResult.value.servers.filter((server) => server.status.toLowerCase() === "running").length;
+      const total = mcpResult.value.servers.length;
+      const label = total === 0 ? "No servers" : `${running}/${total} running`;
+      setStatus("#mcpRuntimeStatus", "#mcpHealthText", label, running > 0 ? "success" : "neutral");
+    } else {
+      setStatus("#mcpRuntimeStatus", "#mcpHealthText", "Unavailable", "warning");
+    }
+
+    if (settingsResult.status === "fulfilled") {
+      const effective = settingsResult.value.effective;
+      const model = text(effective["ollama_model"] ?? effective["ai.model"] ?? effective["model"]);
+      const label = model || "Local Ollama";
+      setStatus("#aiRuntimeStatus", "#aiHealthText", label, model ? "success" : "neutral");
+    } else {
+      setStatus("#aiRuntimeStatus", "#aiHealthText", "Not configured", "warning");
+    }
+
+    if (githubResult.status === "fulfilled") {
+      const status = githubResult.value;
+      const identity = text(status["username"] ?? status["login"] ?? status["user"]);
+      const connected = Boolean(status["connected"] ?? status["authenticated"] ?? identity);
+      setStatus("#githubRuntimeStatus", "#githubHealthText", connected ? identity || "Connected" : "Optional", connected ? "success" : "neutral");
+    } else {
+      setStatus("#githubRuntimeStatus", "#githubHealthText", "Optional", "neutral");
+    }
   }
 
   private renderWorkspaceSwitcher(): void {
@@ -858,10 +948,14 @@ class CodeSpaceApp {
     const workspaces = this.workspaces?.workspaces ?? [];
     select.replaceChildren();
     if (workspaces.length === 0) {
-      select.append(new Option("Current directory", ""));
+      const projectRoot = this.graph?.project_root ?? "";
+      const name = projectRoot.split(/[\\/]/).pop() || "Current directory";
+      select.append(new Option(name, "", true, true));
+      select.title = projectRoot || name;
       return;
     }
     workspaces.forEach((workspace) => select.append(new Option(workspace.name, workspace.id, false, workspace.active)));
+    select.title = workspaces.find((workspace) => workspace.active)?.path ?? "Active repository";
   }
 
   private renderGraph(graph: GraphSnapshot): void {
