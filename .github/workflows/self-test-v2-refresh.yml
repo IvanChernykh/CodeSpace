@@ -1,0 +1,37 @@
+name: Refresh CodeSpace 2.0 self-test
+
+on:
+  push:
+    branches:
+      - fix/dashboard-v3-stability
+    paths:
+      - scripts/patch_self_test_v2.py
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: fix/dashboard-v3-stability
+          fetch-depth: 0
+      - name: Patch and validate self-test
+        run: |
+          set -euo pipefail
+          python3 scripts/patch_self_test_v2.py
+          python3 -m py_compile scripts/self_test.py
+          python3 scripts/self_test.py
+          git restore --worktree --staged artifacts 2>/dev/null || true
+          rm scripts/patch_self_test_v2.py
+      - name: Commit refreshed self-test
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/self_test.py scripts/patch_self_test_v2.py
+          git commit -m "test: refresh behavioral self-test for CodeSpace 2.0"
+          git push origin HEAD:fix/dashboard-v3-stability
