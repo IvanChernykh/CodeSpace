@@ -1,16 +1,17 @@
 use crate::model::{Error, Result};
 use crate::util::json_escape;
 use std::fs;
-use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::io::Write;
 use std::path::Path;
-use std::time::Duration;
+use std::process::{Command, Stdio};
 
-const GITHUB_API_HOST: &str = "api.github.com";
-const GITHUB_API_PORT: u16 = 443;
+const GITHUB_HOST: &str = "github.com";
+const AUTH_MARKER: &str = "gh-cli";
 
 #[derive(Debug, Clone, Default)]
 pub struct GitHubConfig {
+    /// Compatibility field. It is only an in-memory authentication marker and
+    /// is never persisted. GitHub credentials are owned by the `gh` CLI.
     pub token: String,
     pub username: String,
     pub default_owner: String,
@@ -24,11 +25,11 @@ impl GitHubConfig {
 
     pub fn to_json(&self) -> String {
         format!(
-            "{{\"username\":\"{}\",\"default_owner\":\"{}\",\"default_repo\":\"{}\",\"token_set\":{}}}",
+            "{{\"username\":\"{}\",\"default_owner\":\"{}\",\"default_repo\":\"{}\",\"token_set\":{},\"credential_provider\":\"gh-cli\"}}",
             json_escape(&self.username),
             json_escape(&self.default_owner),
             json_escape(&self.default_repo),
-            !self.token.is_empty()
+            self.is_configured()
         )
     }
 }
@@ -42,10 +43,18 @@ pub fn load_config(root: &Path) -> GitHubConfig {
     if !path.exists() {
         return GitHubConfig::default();
     }
-    match fs::read_to_string(&path) {
-        Ok(content) => parse_config(&content),
-        Err(_) => GitHubConfig::default(),
+    let Ok(content) = fs::read_to_string(&path) else {
+        return GitHubConfig::default();
+    };
+    let mut config = parse_config(&content);
+    if !config.token.is_empty() {
+        // Migrate legacy versions that stored a PAT in plaintext. The old
+        // credential is intentionally discarded and must be linked again via
+        // `gh auth login` so it can live in the platform credential store.
+        config.token.clear();
+        let _ = save_config(root, &config);
     }
+    config
 }
 
 pub fn save_config(root: &Path, config: &GitHubConfig) -> Result<()> {
@@ -54,96 +63,84 @@ pub fn save_config(root: &Path, config: &GitHubConfig) -> Result<()> {
         fs::create_dir_all(parent)?;
     }
     let json = format!(
-        "{{\"token\":\"{}\",\"username\":\"{}\",\"default_owner\":\"{}\",\"default_repo\":\"{}\"}}",
-        json_escape(&config.token),
+        "{{\"username\":\"{}\",\"default_owner\":\"{}\",\"default_repo\":\"{}\",\"credential_provider\":\"gh-cli\"}}",
         json_escape(&config.username),
         json_escape(&config.default_owner),
         json_escape(&config.default_repo)
     );
-    fs::write(&path, json)?;
+    let temp = path.with_extension("json.tmp");
+    fs::write(&temp, json)?;
+    if path.exists() {
+        let _ = fs::remove_file(&path);
+    }
+    fs::rename(temp, path)?;
     Ok(())
 }
 
 fn parse_config(content: &str) -> GitHubConfig {
-    let mut config = GitHubConfig::default();
-    let bytes = content.as_bytes();
-    let mut idx = 0;
-    while idx < bytes.len() {
-        if bytes[idx] == b'"' {
-            if let Some((key, end)) = parse_string(content, idx) {
-                idx = end;
-                idx = skip_ws(bytes, idx);
-                if idx < bytes.len() && bytes[idx] == b':' {
-                    idx = skip_ws(bytes, idx + 1);
-                    match key.as_str() {
-                        "token" => {
-                            if let Some((v, n)) = parse_string(content, idx) {
-                                config.token = v;
-                                idx = n;
-                            } else {
-                                idx = skip_value(bytes, idx);
-                            }
-                        }
-                        "username" => {
-                            if let Some((v, n)) = parse_string(content, idx) {
-                                config.username = v;
-                                idx = n;
-                            } else {
-                                idx = skip_value(bytes, idx);
-                            }
-                        }
-                        "default_owner" => {
-                            if let Some((v, n)) = parse_string(content, idx) {
-                                config.default_owner = v;
-                                idx = n;
-                            } else {
-                                idx = skip_value(bytes, idx);
-                            }
-                        }
-                        "default_repo" => {
-                            if let Some((v, n)) = parse_string(content, idx) {
-                                config.default_repo = v;
-                                idx = n;
-                            } else {
-                                idx = skip_value(bytes, idx);
-                            }
-                        }
-                        _ => {
-                            idx = skip_value(bytes, idx);
-                        }
-                    }
-                }
-            } else {
-                idx += 1;
-            }
-        } else {
-            idx += 1;
-        }
+    GitHubConfig {
+        token: json_string(content, "token").unwrap_or_default(),
+        username: json_string(content, "username").unwrap_or_default(),
+        default_owner: json_string(content, "default_owner").unwrap_or_default(),
+        default_repo: json_string(content, "default_repo").unwrap_or_default(),
     }
-    config
 }
 
 pub fn link(root: &Path, token: &str, username: &str) -> Result<GitHubConfig> {
+    if token.trim().is_empty() {
+        return Err(Error::InvalidArgument(
+            "GitHub token is required for `gh auth login --with-token`".to_string(),
+        ));
+    }
+    let input = format!("{}\n", token.trim());
+    run_gh(
+        &[
+            "auth",
+            "login",
+            "--hostname",
+            GITHUB_HOST,
+            "--git-protocol",
+            "https",
+            "--with-token",
+        ],
+        Some(&input),
+    )?;
+
+    let resolved_username = if username.trim().is_empty() {
+        current_username()?
+    } else {
+        username.trim().to_string()
+    };
     let mut config = load_config(root);
-    config.token = token.to_string();
-    config.username = username.to_string();
+    config.token = AUTH_MARKER.to_string();
+    config.username = resolved_username.clone();
     if config.default_owner.is_empty() {
-        config.default_owner = username.to_string();
+        config.default_owner = resolved_username;
     }
     save_config(root, &config)?;
     Ok(config)
 }
 
 pub fn unlink(root: &Path) -> Result<()> {
+    // Do not revoke a machine-wide gh session implicitly. CodeSpace only
+    // removes its repository metadata; `gh auth logout` remains an explicit
+    // user operation.
     let path = config_path(root);
     if path.exists() {
-        fs::remove_file(&path)?;
+        fs::remove_file(path)?;
     }
     Ok(())
 }
 
 pub fn status(root: &Path) -> GitHubConfig {
-    load_config(root)
+    let mut config = load_config(root);
+    if gh_authenticated() {
+        config.token = AUTH_MARKER.to_string();
+        if config.username.is_empty() {
+            config.username = current_username().unwrap_or_default();
+        }
+    }
+    config
 }
 
 pub fn list_issues(
@@ -152,22 +149,15 @@ pub fn list_issues(
     repo: Option<&str>,
     state: &str,
 ) -> Result<String> {
-    let config = load_config(root);
-    if !config.is_configured() {
-        return Err(Error::InvalidArgument(
-            "GitHub not linked. Run: cse github link --token <token> --username <user>".to_string(),
-        ));
-    }
+    let config = authenticated_config(root)?;
     let owner = owner.unwrap_or(&config.default_owner);
     let repo = repo.unwrap_or(&config.default_repo);
-    if owner.is_empty() || repo.is_empty() {
-        return Err(Error::InvalidArgument(
-            "owner and repo must be set".to_string(),
-        ));
-    }
-    let path = format!("/repos/{owner}/{repo}/issues?state={state}&per_page=30");
-    let response = github_api_get(&config.token, &path)?;
-    Ok(response)
+    validate_repository(owner, repo)?;
+    github_api_request(
+        "GET",
+        &format!("repos/{owner}/{repo}/issues?state={state}&per_page=30"),
+        "",
+    )
 }
 
 pub fn list_prs(
@@ -176,17 +166,15 @@ pub fn list_prs(
     repo: Option<&str>,
     state: &str,
 ) -> Result<String> {
-    let config = load_config(root);
-    if !config.is_configured() {
-        return Err(Error::InvalidArgument(
-            "GitHub not linked. Run: cse github link --token <token> --username <user>".to_string(),
-        ));
-    }
+    let config = authenticated_config(root)?;
     let owner = owner.unwrap_or(&config.default_owner);
     let repo = repo.unwrap_or(&config.default_repo);
-    let path = format!("/repos/{owner}/{repo}/pulls?state={state}&per_page=30");
-    let response = github_api_get(&config.token, &path)?;
-    Ok(response)
+    validate_repository(owner, repo)?;
+    github_api_request(
+        "GET",
+        &format!("repos/{owner}/{repo}/pulls?state={state}&per_page=30"),
+        "",
+    )
 }
 
 pub fn create_issue(
@@ -196,178 +184,187 @@ pub fn create_issue(
     owner: Option<&str>,
     repo: Option<&str>,
 ) -> Result<String> {
-    let config = load_config(root);
-    if !config.is_configured() {
-        return Err(Error::InvalidArgument("GitHub not linked".to_string()));
-    }
+    let config = authenticated_config(root)?;
     let owner = owner.unwrap_or(&config.default_owner);
     let repo = repo.unwrap_or(&config.default_repo);
-    let path = format!("/repos/{owner}/{repo}/issues");
-    let body_json = format!(
+    validate_repository(owner, repo)?;
+    let payload = format!(
         "{{\"title\":\"{}\",\"body\":\"{}\"}}",
         json_escape(title),
         json_escape(body)
     );
-    let response = github_api_post(&config.token, &path, &body_json)?;
-    Ok(response)
+    github_api_request("POST", &format!("repos/{owner}/{repo}/issues"), &payload)
 }
 
 pub fn list_repos(root: &Path) -> Result<String> {
-    let config = load_config(root);
-    if !config.is_configured() {
-        return Err(Error::InvalidArgument("GitHub not linked".to_string()));
-    }
-    let path = "/user/repos?per_page=50&sort=updated".to_string();
-    let response = github_api_get(&config.token, &path)?;
-    Ok(response)
+    let _ = authenticated_config(root)?;
+    github_api_request("GET", "user/repos?per_page=50&sort=updated", "")
 }
 
 pub fn set_default_repo(root: &Path, owner: &str, repo: &str) -> Result<()> {
+    validate_repository(owner, repo)?;
     let mut config = load_config(root);
     config.default_owner = owner.to_string();
     config.default_repo = repo.to_string();
-    save_config(root, &config)?;
+    save_config(root, &config)
+}
+
+fn authenticated_config(root: &Path) -> Result<GitHubConfig> {
+    let config = status(root);
+    if config.is_configured() {
+        Ok(config)
+    } else {
+        Err(Error::InvalidArgument(
+            "GitHub is not authenticated. Install GitHub CLI and run `cse github link --token <token> --username <user>` or `gh auth login`.".to_string(),
+        ))
+    }
+}
+
+fn validate_repository(owner: &str, repo: &str) -> Result<()> {
+    if owner.trim().is_empty() || repo.trim().is_empty() {
+        return Err(Error::InvalidArgument(
+            "GitHub owner and repository must be configured".to_string(),
+        ));
+    }
     Ok(())
 }
 
-fn github_api_get(token: &str, path: &str) -> Result<String> {
-    github_api_request(token, "GET", path, "")
-}
-
-fn github_api_post(token: &str, path: &str, body: &str) -> Result<String> {
-    github_api_request(token, "POST", path, body)
-}
-
-fn github_api_request(token: &str, method: &str, path: &str, body: &str) -> Result<String> {
-    use std::net::ToSocketAddrs;
-
-    let host_port = format!("{GITHUB_API_HOST}:{GITHUB_API_PORT}");
-    let addrs = host_port
-        .to_socket_addrs()
-        .map_err(|e| Error::InvalidArgument(format!("DNS resolution failed: {e}")))?;
-    let mut stream = None;
-    for addr in addrs {
-        match TcpStream::connect_timeout(&addr, Duration::from_secs(10)) {
-            Ok(s) => {
-                stream = Some(s);
-                break;
-            }
-            Err(_) => continue,
-        }
-    }
-    let mut stream =
-        stream.ok_or_else(|| Error::InvalidArgument("cannot connect to GitHub API".to_string()))?;
-
-    stream.set_read_timeout(Some(Duration::from_secs(30)))?;
-    stream.set_write_timeout(Some(Duration::from_secs(10)))?;
-
-    let request = if body.is_empty() {
-        format!(
-            "{method} {path} HTTP/1.1\r\nHost: {GITHUB_API_HOST}\r\nUser-Agent: CodeSpace/2.0\r\nAccept: application/vnd.github+json\r\nAuthorization: Bearer {token}\r\nX-GitHub-Api-Version: 2022-11-28\r\nConnection: close\r\n\r\n"
-        )
+fn current_username() -> Result<String> {
+    let username = run_gh(&["api", "user", "--jq", ".login"], None)?;
+    let username = username.trim();
+    if username.is_empty() {
+        Err(Error::Protocol(
+            "GitHub CLI returned an empty authenticated username".to_string(),
+        ))
     } else {
-        format!(
-            "{method} {path} HTTP/1.1\r\nHost: {GITHUB_API_HOST}\r\nUser-Agent: CodeSpace/2.0\r\nAccept: application/vnd.github+json\r\nAuthorization: Bearer {token}\r\nX-GitHub-Api-Version: 2022-11-28\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            body.len()
-        )
-    };
-
-    stream.write_all(request.as_bytes())?;
-
-    let mut response_data = Vec::new();
-    stream.read_to_end(&mut response_data)?;
-
-    let response = String::from_utf8_lossy(&response_data);
-    let body_start = response
-        .find("\r\n\r\n")
-        .ok_or_else(|| Error::InvalidArgument("malformed GitHub API response".to_string()))?;
-
-    let status_line = response.lines().next().unwrap_or("");
-    if !status_line.contains(" 200") && !status_line.contains(" 201") {
-        return Err(Error::InvalidArgument(format!(
-            "GitHub API error: {status_line}"
-        )));
+        Ok(username.to_string())
     }
-
-    Ok(response[body_start + 4..].to_string())
 }
 
-fn parse_string(content: &str, start: usize) -> Option<(String, usize)> {
-    let bytes = content.as_bytes();
-    if bytes.get(start) != Some(&b'"') {
+fn gh_authenticated() -> bool {
+    Command::new("gh")
+        .args(["auth", "status", "--hostname", GITHUB_HOST])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+fn github_api_request(method: &str, path: &str, body: &str) -> Result<String> {
+    let path = path.trim_start_matches('/');
+    if body.is_empty() {
+        run_gh(&["api", "--method", method, path], None)
+    } else {
+        run_gh(
+            &["api", "--method", method, path, "--input", "-"],
+            Some(body),
+        )
+    }
+}
+
+fn run_gh(args: &[&str], input: Option<&str>) -> Result<String> {
+    let mut command = Command::new("gh");
+    command.args(args);
+    command.stdout(Stdio::piped());
+    command.stderr(Stdio::piped());
+    if input.is_some() {
+        command.stdin(Stdio::piped());
+    } else {
+        command.stdin(Stdio::null());
+    }
+
+    let mut child = command.spawn().map_err(|error| {
+        Error::InvalidArgument(format!(
+            "GitHub CLI (`gh`) is required but could not be started: {error}"
+        ))
+    })?;
+    if let Some(input) = input {
+        let stdin = child.stdin.as_mut().ok_or_else(|| {
+            Error::Protocol("failed to open stdin for GitHub CLI".to_string())
+        })?;
+        stdin.write_all(input.as_bytes())?;
+    }
+    let output = child.wait_with_output()?;
+    if !output.status.success() {
+        let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(Error::Protocol(if message.is_empty() {
+            format!("GitHub CLI command failed with status {}", output.status)
+        } else {
+            format!("GitHub CLI command failed: {message}")
+        }));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+fn json_string(input: &str, key: &str) -> Option<String> {
+    let needle = format!("\"{key}\"");
+    let position = input.find(&needle)?;
+    let rest = &input[position + needle.len()..];
+    let colon = rest.find(':')?;
+    parse_json_string(rest[colon + 1..].trim_start())
+}
+
+fn parse_json_string(input: &str) -> Option<String> {
+    let bytes = input.as_bytes();
+    if bytes.first() != Some(&b'\"') {
         return None;
     }
     let mut output = String::new();
-    let mut idx = start + 1;
-    while idx < bytes.len() {
-        match bytes[idx] {
-            b'"' => return Some((output, idx + 1)),
+    let mut index = 1;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\"' => return Some(output),
             b'\\' => {
-                idx += 1;
-                match bytes.get(idx) {
-                    Some(&b'"') => output.push('"'),
-                    Some(&b'\\') => output.push('\\'),
-                    Some(&b'n') => output.push('\n'),
-                    Some(&b't') => output.push('\t'),
-                    Some(&b'r') => output.push('\r'),
-                    Some(&b'/') => output.push('/'),
-                    Some(&b'u') => {
-                        if let Some(hex) = content.get(idx + 1..idx + 5) {
-                            if let Ok(val) = u16::from_str_radix(hex, 16) {
-                                if let Some(ch) = char::from_u32(u32::from(val)) {
-                                    output.push(ch);
-                                }
-                            }
-                            idx += 4;
-                        }
-                    }
-                    _ => {}
+                index += 1;
+                match bytes.get(index) {
+                    Some(b'\"') => output.push('\"'),
+                    Some(b'\\') => output.push('\\'),
+                    Some(b'n') => output.push('\n'),
+                    Some(b'r') => output.push('\r'),
+                    Some(b't') => output.push('\t'),
+                    Some(other) => output.push(char::from(*other)),
+                    None => return None,
                 }
             }
-            byte if byte < 0x80 => output.push(char::from(byte)),
+            byte if byte.is_ascii() => output.push(char::from(byte)),
             _ => {
-                if let Some(ch) = content[idx..].chars().next() {
-                    output.push(ch);
-                    idx += ch.len_utf8() - 1;
-                }
+                let character = input[index..].chars().next()?;
+                output.push(character);
+                index += character.len_utf8().saturating_sub(1);
             }
         }
-        idx += 1;
+        index += 1;
     }
     None
 }
 
-fn skip_ws(bytes: &[u8], mut idx: usize) -> usize {
-    while idx < bytes.len() && matches!(bytes[idx], b' ' | b'\t' | b'\n' | b'\r') {
-        idx += 1;
-    }
-    idx
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-fn skip_value(bytes: &[u8], mut idx: usize) -> usize {
-    let mut depth = 0;
-    while idx < bytes.len() {
-        match bytes[idx] {
-            b'{' | b'[' => depth += 1,
-            b'}' | b']' => {
-                if depth == 0 {
-                    return idx;
-                }
-                depth -= 1;
-            }
-            b',' if depth == 0 => return idx,
-            b'"' => {
-                idx += 1;
-                while idx < bytes.len() && bytes[idx] != b'"' {
-                    if bytes[idx] == b'\\' {
-                        idx += 1;
-                    }
-                    idx += 1;
-                }
-            }
-            _ => {}
-        }
-        idx += 1;
+    #[test]
+    fn persisted_config_never_contains_token() {
+        let config = GitHubConfig {
+            token: "secret".to_string(),
+            username: "ivan".to_string(),
+            default_owner: "IvanChernykh".to_string(),
+            default_repo: "CodeSpace".to_string(),
+        };
+        let rendered = format!(
+            "{{\"username\":\"{}\",\"default_owner\":\"{}\",\"default_repo\":\"{}\"}}",
+            json_escape(&config.username),
+            json_escape(&config.default_owner),
+            json_escape(&config.default_repo)
+        );
+        assert!(!rendered.contains("secret"));
     }
-    idx
+
+    #[test]
+    fn parses_legacy_token_for_migration() {
+        let config = parse_config(
+            "{\"token\":\"legacy\",\"username\":\"ivan\",\"default_owner\":\"o\",\"default_repo\":\"r\"}",
+        );
+        assert_eq!(config.token, "legacy");
+        assert_eq!(config.username, "ivan");
+    }
 }
