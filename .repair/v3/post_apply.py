@@ -129,6 +129,12 @@ replace_all(
     "task optional timestamps",
 )
 replace_once(
+    Path("src/tasks.rs"),
+    "            .filter(|t| t.due_unix_ms.map_or(true, |due| due >= now))",
+    "            .filter(|t| t.due_unix_ms.is_none_or(|due| due >= now))",
+    "upcoming task due-date filter",
+)
+replace_once(
     Path("src/workspace.rs"),
     '        Ok(self.workspaces.get(&id_str).ok_or_else(|| Error::CorruptIndex("workspace insertion failed".to_string()))?)',
     '        self.workspaces\n            .get(&id_str)\n            .ok_or_else(|| Error::CorruptIndex("workspace insertion failed".to_string()))',
