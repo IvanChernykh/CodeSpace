@@ -71,13 +71,16 @@ jobs:
             curl --fail --silent --show-error --location \
               --connect-timeout 5 --max-time 20 \
               "${SITE_URL}${stylesheet}" --output "artifacts/pages-${stylesheet}"
-            test "$(wc -c < "artifacts/pages-${stylesheet}")" -gt 500
+            bytes=$(wc -c < "artifacts/pages-${stylesheet}")
+            printf '%s_bytes=%s\n' "$stylesheet" "$bytes"
+            test "$bytes" -gt 500
           done
           cat artifacts/pages-base.css artifacts/pages-components.css artifacts/pages-responsive.css \
             > artifacts/pages-styles-expanded.css
           test "$(wc -c < artifacts/pages-styles-expanded.css)" -gt 10000
           test "$(wc -c < artifacts/pages-app.js)" -gt 1000
-          grep -q -- '--accent:' artifacts/pages-styles-expanded.css
+          grep -q -- '--teal:' artifacts/pages-styles-expanded.css
+          grep -q -- '--bg-deep:' artifacts/pages-styles-expanded.css
           grep -qi '^content-type: text/html' artifacts/pages-headers.txt
           node --check artifacts/pages-app.js
       - name: Record deployment evidence
