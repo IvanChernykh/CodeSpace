@@ -28,35 +28,11 @@ jobs:
       - name: Install dashboard toolchain
         working-directory: dashboard
         run: npm ci
-      - name: Make site patch whitespace-tolerant and apply product polish
+      - name: Apply final product polish
         run: |
           mkdir -p artifacts
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('scripts/finalize_product.py')
-          content = path.read_text(encoding='utf-8')
-          old = '''    for old, new in replacements:
-                  replace_once(path, old, new)
-          '''
-          new = '''    content = path.read_text(encoding="utf-8")
-              for old, new in replacements:
-                  content = content.replace(old, new)
-              content = content.replace(
-                  '# Index and retrieve</span>\\ncse init\\ncse context --query',
-                  '# Index, open the control plane, and retrieve</span>\\ncse init\\ncse dashboard\\ncse context --query',
-              )
-              path.write_text(content, encoding="utf-8")
-              required = ["12 MCP tools", "Local dashboard", "cse dashboard", "complete local control plane"]
-              missing = [item for item in required if item not in content]
-              if missing:
-                  raise SystemExit(f"site postconditions failed: {missing}")
-          '''
-          if old not in content:
-              raise SystemExit('could not locate strict site replacement loop')
-          path.write_text(content.replace(old, new, 1), encoding='utf-8')
-          PY
           set +e
-          python3 scripts/finalize_product.py > artifacts/finalize.log 2>&1
+          python3 scripts/run_final_product_polish.py > artifacts/finalize.log 2>&1
           status=$?
           cat artifacts/finalize.log
           echo "$status" > artifacts/finalize.status
