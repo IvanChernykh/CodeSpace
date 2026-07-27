@@ -30,6 +30,7 @@ jobs:
         run: npm ci
       - name: Repair finalizer whitespace and apply product polish
         run: |
+          mkdir -p artifacts
           python3 - <<'PY'
           from pathlib import Path
           path = Path('scripts/finalize_product.py')
@@ -38,7 +39,19 @@ jobs:
           content = content.replace('\n cse init\n cse dashboard\n cse context --query', '\ncse init\ncse dashboard\ncse context --query')
           path.write_text(content, encoding='utf-8')
           PY
-          python3 scripts/finalize_product.py
+          set +e
+          python3 scripts/finalize_product.py > artifacts/finalize.log 2>&1
+          status=$?
+          cat artifacts/finalize.log
+          echo "$status" > artifacts/finalize.status
+          exit "$status"
+      - name: Upload finalizer diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: product-finalizer-diagnostics
+          path: artifacts/
+          if-no-files-found: warn
       - name: Build dashboard assets
         working-directory: dashboard
         run: npm run build
