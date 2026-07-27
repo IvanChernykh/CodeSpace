@@ -12,9 +12,9 @@ jobs:
   diagnose:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
-      - name: Reproduce generated repair with compact output
+      - name: Reproduce generated repair with MSRV and current toolchains
         shell: bash
         env:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -33,25 +33,40 @@ jobs:
           python scripts/apply_v3_repair.py
           python .repair/v3/post_apply.py
           python .repair/v3/test_clippy.py
-          cargo fmt --all
-          rustc --version
-          cargo --version
 
-          if ! cargo check --locked > /tmp/check.log 2>&1; then
-            echo "=== CARGO CHECK FAILURE ==="
-            tail -n 100 /tmp/check.log
+          rustup toolchain install 1.85.0 --profile minimal --component rustfmt,clippy >/dev/null
+          cargo +1.85.0 fmt --all
+          if ! cargo +1.85.0 check --locked --message-format=short > /tmp/msrv-check.log 2>&1; then
+            echo "=== MSRV CHECK FAILURE ==="
+            cat /tmp/msrv-check.log
             exit 1
           fi
-          if ! cargo test --locked --all-targets > /tmp/test.log 2>&1; then
-            echo "=== CARGO TEST FAILURE SUMMARY ==="
-            grep -nE "FAILED|panicked|failures:|error:|test result:" /tmp/test.log | tail -n 120 || true
-            echo "=== CARGO TEST FAILURE TAIL ==="
-            tail -n 80 /tmp/test.log
+          if ! cargo +1.85.0 test --locked --all-targets --message-format=short > /tmp/msrv-test.log 2>&1; then
+            echo "=== MSRV TEST FAILURE ==="
+            cat /tmp/msrv-test.log
             exit 1
           fi
-          if ! cargo clippy --locked --all-targets --all-features --message-format=short -- -D warnings > /tmp/clippy.log 2>&1; then
-            echo "=== CARGO CLIPPY FAILURE ==="
-            cat /tmp/clippy.log
+          if ! cargo +1.85.0 clippy --locked --all-targets --all-features --message-format=short -- -D warnings > /tmp/msrv-clippy.log 2>&1; then
+            echo "=== MSRV CLIPPY FAILURE ==="
+            cat /tmp/msrv-clippy.log
             exit 1
           fi
-          echo "Rust diagnostic passed"
+          echo "MSRV 1.85 passed"
+
+          cargo +1.97.1 fmt --all
+          if ! cargo +1.97.1 check --locked --message-format=short > /tmp/current-check.log 2>&1; then
+            echo "=== CURRENT CHECK FAILURE ==="
+            cat /tmp/current-check.log
+            exit 1
+          fi
+          if ! cargo +1.97.1 test --locked --all-targets --message-format=short > /tmp/current-test.log 2>&1; then
+            echo "=== CURRENT TEST FAILURE ==="
+            cat /tmp/current-test.log
+            exit 1
+          fi
+          if ! cargo +1.97.1 clippy --locked --all-targets --all-features --message-format=short -- -D warnings > /tmp/current-clippy.log 2>&1; then
+            echo "=== CURRENT CLIPPY FAILURE ==="
+            cat /tmp/current-clippy.log
+            exit 1
+          fi
+          echo "Current Rust 1.97 passed"
