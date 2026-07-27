@@ -48,11 +48,9 @@ jobs:
             tail -n 80 /tmp/test.log
             exit 1
           fi
-          if ! cargo clippy --locked --all-targets --all-features -- -D warnings > /tmp/clippy.log 2>&1; then
-            echo "=== CARGO CLIPPY FAILURE SUMMARY ==="
-            grep -nE "error:|warning:|denied" /tmp/clippy.log | tail -n 120 || true
-            echo "=== CARGO CLIPPY FAILURE TAIL ==="
-            tail -n 100 /tmp/clippy.log
+          if ! cargo clippy --locked --all-targets --all-features --message-format=short -- -D warnings > /tmp/clippy.log 2>&1; then
+            echo "=== CARGO CLIPPY FAILURE ==="
+            cat /tmp/clippy.log
             exit 1
           fi
           echo "Rust diagnostic passed"
