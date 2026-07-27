@@ -32,11 +32,3 @@ replace_once(
     '            builtin("dep-audit", "1.0.0", "Compatibility alias for dependency and unused import auditing", read(), &["builtin", "compatibility", "dependencies"]),\n',
     "post-apply legacy skill compatibility",
 )
-
-tasks = Path("src/tasks.rs")
-replace_once(
-    tasks,
-    '        self.tasks.get(&id).expect("inserted task must exist")\n',
-    '        self.tasks\n            .get(&id)\n            .unwrap_or_else(|| unreachable!("inserted task must exist"))\n',
-    "post-apply task insertion invariant",
-)
