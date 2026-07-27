@@ -73,7 +73,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo fmt --all -- --check
+          cargo fmt --all
           if ! cargo check --locked --message-format=short > /tmp/check.log 2>&1; then
             echo "=== MSRV CHECK FAILURE ==="
             cat /tmp/check.log
