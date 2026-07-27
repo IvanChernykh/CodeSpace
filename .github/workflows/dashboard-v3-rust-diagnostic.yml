@@ -33,6 +33,7 @@ jobs:
           python scripts/apply_v3_repair.py
           python .repair/v3/post_apply.py
           python .repair/v3/test_clippy.py
+          python .repair/v3/msrv_clippy.py
 
           rustup toolchain install 1.85.0 --profile minimal --component rustfmt,clippy >/dev/null
           cargo +1.85.0 fmt --all
