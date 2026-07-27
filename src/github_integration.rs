@@ -8,6 +8,8 @@ use std::process::{Command, Stdio};
 const GITHUB_HOST: &str = "github.com";
 const AUTH_MARKER: &str = "gh-cli";
 
+// Authenticated network operations are delegated to the system `gh api` TLS client.
+
 #[derive(Debug, Clone, Default)]
 pub struct GitHubConfig {
     /// Compatibility field. It is only an in-memory authentication marker and

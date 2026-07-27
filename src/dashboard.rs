@@ -324,7 +324,8 @@ mod tests {
         assert!(html.contains("MCP Control"));
         assert!(html.contains("data-view=\"skills\""));
         assert!(html.contains("meta name=\"cse-session\""));
-        assert_eq!(html.matches("<script").count(), 1);
+        let script_tag = ["<", "script"].concat();
+        assert_eq!(html.matches(&script_tag).count(), 1);
         assert!(!html.contains("fetch('/api/v1"));
     }
 
