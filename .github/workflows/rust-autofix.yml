@@ -1,4 +1,4 @@
-name: Monochrome workbench finalize
+name: Rust autofix
 
 on:
   pull_request:
@@ -14,63 +14,40 @@ jobs:
   fix:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: dashboard/package-lock.json
-      - name: Install dashboard toolchain
-        working-directory: dashboard
-        run: npm ci
-      - name: Apply monochrome IDE workbench
-        run: |
-          python3 scripts/apply_monochrome_workbench.py
-          git checkout -- scripts/render_dashboard.mjs .github/workflows/ci.yml
-          python3 - <<'PY'
-          from pathlib import Path
-          dashboard = Path('src/dashboard.rs')
-          text = dashboard.read_text(encoding='utf-8')
-          needle = '<div class="workbench-overview">'
-          replacement = '<div class="workbench-overview"><span class="sr-only">Command Center</span>'
-          if text.count(needle) != 1:
-              raise SystemExit(f'expected one workbench root, found {text.count(needle)}')
-          dashboard.write_text(text.replace(needle, replacement, 1), encoding='utf-8')
-          css = Path('dashboard/dist/dashboard.css')
-          styles = css.read_text(encoding='utf-8')
-          styles += '\n.sr-only { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0,0,0,0) !important; white-space: nowrap !important; border: 0 !important; }\n'
-          css.write_text(styles, encoding='utf-8')
-          PY
-      - name: Build and validate dashboard
-        run: |
-          cd dashboard
-          npm run build
-          node --check dist/main.js
-          cd ..
-          python3 scripts/validate_dashboard_contract.py
       - name: Install pinned Rust toolchain
         run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
-      - name: Validate product
+      - name: Apply deterministic formatting and machine-applicable fixes
+        shell: bash
         run: |
+          set -euo pipefail
           cargo +1.97.1 fmt --all
+          cargo +1.97.1 fix --all-targets --allow-dirty --allow-staged --locked || true
+          cargo +1.97.1 clippy --fix --all-targets --allow-dirty --allow-staged --locked -- -W clippy::correctness || true
+          cargo +1.97.1 fmt --all
+      - name: Validate resulting Rust source
+        run: |
           cargo +1.97.1 check --all-targets --locked
           cargo +1.97.1 test --all-targets --locked
           cargo +1.97.1 clippy --all-targets --all-features --locked -- -D warnings
-      - name: Commit workbench redesign
+      - name: Commit safe fixes to pull-request branch
         if: github.event_name == 'pull_request'
         env:
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        shell: bash
         run: |
           set -euo pipefail
+          if git diff --quiet; then
+            echo "No machine-applicable changes were required."
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/dashboard.rs dashboard/src/main.ts dashboard/dist/main.js dashboard/dist/dashboard.css
-          git diff --cached --stat
-          git commit -m "Redesign dashboard as a monochrome IDE workbench"
-          git pull --rebase origin "$HEAD_REF"
+          git add -A
+          git commit -m "Apply rustfmt and machine-applicable Rust fixes"
           git push origin "HEAD:${HEAD_REF}"
