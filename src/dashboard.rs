@@ -9,7 +9,7 @@ pub fn render_dashboard(token: &str) -> String {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="color-scheme" content="dark">
-  <meta name="theme-color" content="#07090f">
+  <meta name="theme-color" content="#0a0a0a">
   <meta name="cse-session" content="{safe_token}">
   <title>CodeSpace — IDE Assistant</title>
   <link rel="stylesheet" href="/assets/dashboard.css">
@@ -19,12 +19,12 @@ pub fn render_dashboard(token: &str) -> String {
     <aside class="sidebar-nav" aria-label="Primary navigation">
       <div class="brand">
         <div class="brand-mark">CS</div>
-        <div class="brand-copy"><strong>CodeSpace</strong><span>IDE Assistant</span></div>
+        <div class="brand-copy"><strong>CodeSpace</strong><span>Local workbench</span></div>
       </div>
       <div class="nav-scroll">
         <div class="nav-section">
           <span class="nav-label">Workspace</span>
-          <button class="nav-item is-active" data-nav="overview"><span class="nav-icon">⌂</span><span>Command Center</span></button>
+          <button class="nav-item is-active" data-nav="overview"><span class="nav-icon">⌂</span><span>Workspace</span></button>
           <button class="nav-item" data-nav="graph"><span class="nav-icon">⌘</span><span>Repository Map</span></button>
           <button class="nav-item" data-nav="context"><span class="nav-icon">{{ }}</span><span>Context Builder</span></button>
           <button class="nav-item" data-nav="impact"><span class="nav-icon">↗</span><span>Impact Analysis</span></button>
@@ -52,7 +52,7 @@ pub fn render_dashboard(token: &str) -> String {
 
     <div class="main-shell">
       <header class="topbar">
-        <div class="page-heading"><h1 id="pageTitle">Command Center</h1><p id="pageSubtitle">Runtime, index, and repository health</p></div>
+        <div class="page-heading"><h1 id="pageTitle">Workspace</h1><p id="pageSubtitle">Repository, agent, and runtime</p></div>
         <label class="global-search">
           <input id="globalSearch" type="search" autocomplete="off" placeholder="Find a file, symbol, action…">
           <span class="keycap">Ctrl K</span>
@@ -70,69 +70,110 @@ pub fn render_dashboard(token: &str) -> String {
 
       <main class="content">
         <section class="view is-active" data-view="overview">
-          <div class="overview-grid">
-            <article class="surface hero-repository">
-              <div class="hero-copy">
-                <span class="eyebrow">Local-first repository intelligence</span>
-                <h2>Understand the codebase as a <span>connected system</span>, not a folder tree.</h2>
-                <p>CodeSpace unifies the CLI, localhost dashboard, MCP tools, skills, decisions, tasks, and local AI around one indexed repository state.</p>
-                <div class="repository-identity">
+          <div class="workbench-overview"><span class="sr-only">Command Center</span>
+            <section class="workbench-editor" aria-label="Repository workspace">
+              <div class="editor-tabs">
+                <button class="editor-tab is-active" type="button"><span class="file-glyph">◫</span>repository</button>
+                <button class="editor-tab" type="button" data-quick-tab="graph"><span class="file-glyph">⌘</span>graph</button>
+                <button class="editor-tab" type="button" data-quick-tab="history"><span class="file-glyph">◷</span>decisions</button>
+                <div class="editor-tab-spacer"></div>
+                <button class="editor-toolbar-action" type="button" data-quick-tab="context">Build context</button>
+                <button class="editor-toolbar-action" type="button" data-quick-tab="impact">Analyze diff</button>
+              </div>
+
+              <div class="repository-document">
+                <header class="repository-document-header">
                   <div class="repo-avatar" id="repositoryInitial">R</div>
-                  <div><strong id="activeRepositoryName">Current directory</strong><code id="activeRepositoryPath">Loading active repository…</code></div>
+                  <div class="repository-document-copy">
+                    <span class="document-kicker">Active repository</span>
+                    <h2 id="activeRepositoryName">Current directory</h2>
+                    <code id="activeRepositoryPath">Loading active repository…</code>
+                  </div>
+                  <div class="repository-document-actions">
+                    <button class="button ghost small" type="button" data-quick-tab="workspaces">Switch repository</button>
+                    <button class="button primary small" type="button" data-quick-tab="assistant">Open agent</button>
+                  </div>
+                </header>
+
+                <div class="repository-statline" aria-label="Repository index summary">
+                  <div><span>Files</span><strong id="metricFiles">0</strong></div>
+                  <div><span>Symbols</span><strong id="metricSymbols">0</strong></div>
+                  <div><span>Relations</span><strong id="metricEdges">0</strong></div>
+                  <div><span>Revision</span><strong id="metricRevision">r0</strong><small id="metricUpdated">not indexed</small></div>
+                </div>
+
+                <section class="document-section topology-section">
+                  <div class="document-section-heading">
+                    <div><span class="section-path">repository / topology</span><h3>Connected files</h3></div>
+                    <button class="editor-toolbar-action" type="button" data-quick-tab="graph">Open full map</button>
+                  </div>
+                  <div id="overviewRepositoryMap" class="topology-map"><div class="empty-inline">Loading repository topology…</div></div>
+                </section>
+              </div>
+            </section>
+
+            <aside class="workbench-agent" aria-label="CodeSpace agent">
+              <div class="agent-panel-header">
+                <div><strong>Agent</strong><span>Repository context</span></div>
+                <span class="agent-mode">LOCAL</span>
+              </div>
+              <div class="agent-transcript">
+                <div class="agent-message">
+                  <span class="agent-author">CodeSpace</span>
+                  <p>The repository is indexed. Select a file, build context, or ask the agent to investigate a change.</p>
+                </div>
+                <div class="agent-runtime-list">
+                  <button type="button" data-quick-tab="assistant"><span>AI</span><strong id="aiRuntimeStatus">Local Ollama</strong></button>
+                  <button type="button" data-quick-tab="skills"><span>Skills</span><strong id="skillsRuntimeStatus">Built-in registry</strong></button>
+                  <button type="button" data-quick-tab="mcp"><span>MCP</span><strong id="mcpRuntimeStatus">No servers</strong></button>
+                  <button type="button" data-quick-tab="github"><span>GitHub</span><strong id="githubRuntimeStatus">Optional</strong></button>
+                </div>
+                <div class="agent-message agent-message-muted">
+                  <span class="agent-author">Context policy</span>
+                  <p>Source stays local. Context is bounded and credential-like values are redacted before output.</p>
                 </div>
               </div>
-            </article>
-
-            <article class="surface quick-actions">
-              <div class="surface-header"><div><h3>Start here</h3><p>Common engineering workflows</p></div></div>
-              <div class="surface-body">
-                <button class="quick-action" data-quick-tab="graph"><span class="quick-action-icon">⌘</span><span><strong>Explore repository</strong><small>Open the file dependency map</small></span><span>→</span></button>
-                <button class="quick-action" data-quick-tab="context"><span class="quick-action-icon">{{ }}</span><span><strong>Build AI context</strong><small>Retrieve only relevant source</small></span><span>→</span></button>
-                <button class="quick-action" data-quick-tab="impact"><span class="quick-action-icon">↗</span><span><strong>Analyze a change</strong><small>Estimate propagation and risk</small></span><span>→</span></button>
+              <div class="agent-shortcuts">
+                <button type="button" data-quick-tab="graph"><span>⌘</span>Explore files</button>
+                <button type="button" data-quick-tab="context"><span>@</span>Build context</button>
+                <button type="button" data-quick-tab="impact"><span>±</span>Review impact</button>
               </div>
-            </article>
+              <button class="agent-composer" type="button" data-quick-tab="assistant">
+                <span>Ask CodeSpace about this repository</span><kbd>⌘ ↵</kbd>
+              </button>
+            </aside>
 
-            <article class="surface architecture-panel">
-              <div class="surface-header"><div><h3>Architecture pulse</h3><p>Most connected files in the active repository</p></div><button class="button ghost small" data-quick-tab="graph">Open full map</button></div>
-              <div class="surface-body architecture-overview">
-                <div id="overviewRepositoryMap" class="topology-map"><div class="empty-inline">Loading repository topology…</div></div>
-                <div class="runtime-status-grid">
-                  <div class="runtime-status"><span>AI runtime</span><strong id="aiRuntimeStatus">Local Ollama</strong><small>Repository-aware local inference</small></div>
-                  <div class="runtime-status"><span>Skills</span><strong id="skillsRuntimeStatus">Built-in registry</strong><small>Controlled engineering capabilities</small></div>
-                  <div class="runtime-status"><span>MCP</span><strong id="mcpRuntimeStatus">No servers</strong><small>Verified local tool servers</small></div>
-                  <div class="runtime-status"><span>GitHub</span><strong id="githubRuntimeStatus">Optional</strong><small>Optional delivery integration</small></div>
+            <section class="workbench-bottom" aria-label="Runtime output">
+              <div class="bottom-panel-tabs">
+                <button class="is-active" type="button">System</button>
+                <button type="button">Languages</button>
+                <button type="button">Interfaces</button>
+                <span class="bottom-panel-spacer"></span>
+                <code>localhost · v<span id="runtimeVersionMirror">2.0.0</span></code>
+              </div>
+              <div class="bottom-panel-content">
+                <div class="system-output health-list">
+                  <div class="health-row" data-tone="warning"><span>semantic-index</span><strong id="indexHealthText">Checking…</strong></div>
+                  <div class="health-row"><span>ai-runtime</span><strong id="aiHealthText">Local Ollama</strong></div>
+                  <div class="health-row"><span>skills-registry</span><strong id="skillsHealthText">Built-in registry</strong></div>
+                  <div class="health-row"><span>mcp-servers</span><strong id="mcpHealthText">No servers</strong></div>
+                  <div class="health-row"><span>github-delivery</span><strong id="githubHealthText">Optional</strong></div>
+                  <div class="health-row" data-tone="success"><span>api-exposure</span><strong>127.0.0.1 only</strong></div>
+                </div>
+                <div class="language-output">
+                  <div class="output-heading">Indexed languages</div>
+                  <div id="languageBreakdown"></div>
+                </div>
+                <div class="interface-output">
+                  <div class="output-heading">Interfaces</div>
+                  <div class="delivery-stack">
+                    <div class="delivery-item"><span>Terminal</span><strong>cse CLI</strong></div>
+                    <div class="delivery-item"><span>Agents</span><strong>MCP tools</strong></div>
+                    <div class="delivery-item"><span>Browser</span><strong>localhost</strong></div>
+                  </div>
                 </div>
               </div>
-            </article>
-
-            <article class="surface metric-card"><div class="metric-top"><span>Files</span><span class="metric-icon">▦</span></div><strong id="metricFiles">0</strong><small>indexed repository files</small></article>
-            <article class="surface metric-card"><div class="metric-top"><span>Symbols</span><span class="metric-icon">ƒ</span></div><strong id="metricSymbols">0</strong><small>functions, types, modules, tests</small></article>
-            <article class="surface metric-card"><div class="metric-top"><span>Relationships</span><span class="metric-icon">⇄</span></div><strong id="metricEdges">0</strong><small>calls, imports, dependencies</small></article>
-            <article class="surface metric-card"><div class="metric-top"><span>Revision</span><span class="metric-icon">#</span></div><strong id="metricRevision">r0</strong><small id="metricUpdated">not indexed</small></article>
-
-            <article class="surface health-panel">
-              <div class="surface-header"><div><h3>System health</h3><p>Operational status of the local assistant</p></div></div>
-              <div class="surface-body health-list">
-                <div class="health-row" data-tone="warning"><span>Semantic index</span><strong id="indexHealthText">Checking…</strong></div>
-                <div class="health-row"><span>AI runtime</span><strong id="aiHealthText">Local Ollama</strong></div>
-                <div class="health-row"><span>Skills registry</span><strong id="skillsHealthText">Built-in registry</strong></div>
-                <div class="health-row"><span>MCP servers</span><strong id="mcpHealthText">No servers</strong></div>
-                <div class="health-row"><span>GitHub delivery</span><strong id="githubHealthText">Optional</strong></div>
-                <div class="health-row" data-tone="success"><span>API exposure</span><strong>127.0.0.1 only</strong></div>
-              </div>
-            </article>
-            <article class="surface languages-panel">
-              <div class="surface-header"><div><h3>Languages</h3><p>Indexed file distribution</p></div></div>
-              <div id="languageBreakdown" class="surface-body"></div>
-            </article>
-            <article class="surface delivery-panel">
-              <div class="surface-header"><div><h3>Interfaces</h3><p>One core, multiple clients</p></div></div>
-              <div class="surface-body delivery-stack">
-                <div class="delivery-item"><span>Terminal</span><strong>cse CLI</strong></div>
-                <div class="delivery-item"><span>IDE agents</span><strong>MCP tools</strong></div>
-                <div class="delivery-item"><span>Browser</span><strong>localhost dashboard</strong></div>
-              </div>
-            </article>
+            </section>
           </div>
         </section>
 

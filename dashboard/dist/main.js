@@ -583,7 +583,7 @@ class CodeSpaceApp {
         $$("[data-nav]").forEach((node) => node.classList.toggle("is-active", node.dataset.nav === tab));
         $$("[data-view]").forEach((node) => node.classList.toggle("is-active", node.dataset.view === tab));
         const labels = {
-            overview: ["Command Center", "Runtime, index, and repository health"],
+            overview: ["Workspace", "Repository, agent, and runtime"],
             graph: ["Repository Map", "File-level dependency network"],
             context: ["Context Builder", "Build precise, token-bounded context"],
             impact: ["Impact Analysis", "Trace change propagation before editing"],
