@@ -19,15 +19,22 @@ pub struct ServerConfig {
     pub host: String,
     pub port: u16,
     pub bootstrap_token: String,
+    pub open_desktop: bool,
 }
 
 impl ServerConfig {
-    pub fn new(port: u16) -> Self {
-        Self {
+    pub fn new(port: u16) -> Result<Self> {
+        Ok(Self {
             host: "127.0.0.1".to_string(),
             port,
-            bootstrap_token: generate_token(),
-        }
+            bootstrap_token: generate_token()?,
+            open_desktop: false,
+        })
+    }
+
+    pub fn with_desktop(mut self) -> Self {
+        self.open_desktop = true;
+        self
     }
 
     pub fn address(&self) -> String {
@@ -35,33 +42,14 @@ impl ServerConfig {
     }
 }
 
-fn generate_token() -> String {
-    use std::time::SystemTime;
-    let nanos = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map_or(0u128, |d| d.as_nanos());
-    let pid = std::process::id();
-    let stack_addr = &nanos as *const u128 as usize;
-    let mut state = 0xcbf2_9ce4_8422_2325_u64;
-    for byte in nanos.to_le_bytes().iter() {
-        state ^= u64::from(*byte);
-        state = state.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    for byte in (pid as u64).to_le_bytes().iter() {
-        state ^= u64::from(*byte);
-        state = state.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    for byte in (stack_addr as u64).to_le_bytes().iter() {
-        state ^= u64::from(*byte);
-        state = state.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    for round in 0..16u64 {
-        state ^= round.wrapping_mul(0x9e37_79b9_7f4a_7c15);
-        state = state.wrapping_mul(0x100000001b3);
-    }
-    let part1 = state;
-    let part2 = state.wrapping_mul(0x100000001b3) ^ 0x6c62_2e35_7662_7a6f;
-    format!("{:016x}{:016x}", part1, part2)
+fn generate_token() -> Result<String> {
+    let mut bytes = [0_u8; 32];
+    getrandom::fill(&mut bytes).map_err(|error| {
+        Error::Protocol(format!(
+            "secure OS entropy is unavailable; refusing to start: {error}"
+        ))
+    })?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 #[derive(Debug, Clone)]
@@ -96,6 +84,10 @@ impl EventLog {
     }
 }
 
+const MAX_CONNECTIONS: usize = 64;
+const AUTH_MAX_ATTEMPTS: usize = 10;
+const AUTH_WINDOW_MS: u128 = 60_000;
+
 #[derive(Debug)]
 pub struct ServerState {
     pub config: ServerConfig,
@@ -104,6 +96,7 @@ pub struct ServerState {
     pub events: EventLog,
     pub skills: crate::skills::SkillRegistry,
     pub mcp: crate::mcp_manager::McpManager,
+    auth_failures: std::collections::HashMap<String, std::collections::VecDeque<u128>>,
 }
 
 impl ServerState {
@@ -117,7 +110,32 @@ impl ServerState {
             events,
             skills: crate::skills::load_skill_registry(),
             mcp: crate::mcp_manager::load_mcp_manager(),
+            auth_failures: std::collections::HashMap::new(),
         }
+    }
+
+    fn auth_allowed(&mut self, ip: &str) -> bool {
+        let now = crate::util::now_unix_ms();
+        let entries = self.auth_failures.entry(ip.to_string()).or_default();
+        while entries
+            .front()
+            .is_some_and(|stamp| now.saturating_sub(*stamp) > AUTH_WINDOW_MS)
+        {
+            entries.pop_front();
+        }
+        entries.len() < AUTH_MAX_ATTEMPTS
+    }
+
+    fn record_auth_failure(&mut self, ip: &str) {
+        let now = crate::util::now_unix_ms();
+        self.auth_failures
+            .entry(ip.to_string())
+            .or_default()
+            .push_back(now);
+    }
+
+    fn clear_auth_failures(&mut self, ip: &str) {
+        self.auth_failures.remove(ip);
     }
 }
 
@@ -139,6 +157,7 @@ pub fn discover_instance(port: u16) -> Option<ServerConfig> {
             host: "127.0.0.1".to_string(),
             port,
             bootstrap_token: String::new(),
+            open_desktop: false,
         })
     } else {
         None
@@ -149,19 +168,37 @@ pub fn serve(root: &Path, mut config: ServerConfig) -> Result<()> {
     let listener = bind_with_dynamic_port(&mut config)?;
     let address = config.address();
     eprintln!("CodeSpace server listening on http://{address}");
-    eprintln!("Session token: {}", config.bootstrap_token);
+    eprintln!("Session auth: HttpOnly SameSite cookie");
+    if config.open_desktop {
+        launch_desktop_window(config.port);
+    }
     let state = Arc::new(Mutex::new(ServerState::new(config)));
     let registry = Arc::new(ActionRegistry::new());
     let root = Arc::new(root.to_path_buf());
+    let active_connections = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
     for stream_result in listener.incoming() {
         match stream_result {
-            Ok(stream) => {
+            Ok(mut stream) => {
+                if active_connections.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                    >= MAX_CONNECTIONS
+                {
+                    active_connections.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                    let _ = write_json_response(
+                        &mut stream,
+                        503,
+                        "{\"error\":\"server busy: too many connections\"}",
+                    );
+                    continue;
+                }
                 let state = Arc::clone(&state);
                 let registry = Arc::clone(&registry);
                 let root = Arc::clone(&root);
+                let active_connections = Arc::clone(&active_connections);
                 thread::spawn(move || {
-                    if let Err(error) = handle_connection(stream, &root, &state, &registry) {
+                    let result = handle_connection(stream, &root, &state, &registry);
+                    active_connections.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                    if let Err(error) = result {
                         eprintln!("server request failed: {error}");
                     }
                 });
@@ -170,6 +207,62 @@ pub fn serve(root: &Path, mut config: ServerConfig) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn launch_desktop_window(port: u16) {
+    let url = format!("http://127.0.0.1:{port}/dashboard");
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(180));
+        if let Err(error) = open_app_window(&url) {
+            eprintln!("Could not launch desktop window: {error}. Open {url} manually.");
+        }
+    });
+}
+
+#[cfg(target_os = "windows")]
+fn open_app_window(url: &str) -> std::io::Result<()> {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let mut candidates = Vec::new();
+    if let Ok(program_files) = std::env::var("ProgramFiles(x86)") {
+        candidates.push(PathBuf::from(program_files).join("Microsoft/Edge/Application/msedge.exe"));
+    }
+    if let Ok(program_files) = std::env::var("ProgramFiles") {
+        candidates.push(PathBuf::from(program_files).join("Microsoft/Edge/Application/msedge.exe"));
+    }
+    if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+        candidates
+            .push(PathBuf::from(&local_app_data).join("Microsoft/Edge/Application/msedge.exe"));
+        candidates.push(PathBuf::from(local_app_data).join("Google/Chrome/Application/chrome.exe"));
+    }
+    for executable in candidates.into_iter().filter(|path| path.is_file()) {
+        if Command::new(executable)
+            .arg(format!("--app={url}"))
+            .arg("--no-first-run")
+            .spawn()
+            .is_ok()
+        {
+            return Ok(());
+        }
+    }
+    Command::new("explorer.exe").arg(url).spawn().map(|_| ())
+}
+
+#[cfg(target_os = "macos")]
+fn open_app_window(url: &str) -> std::io::Result<()> {
+    std::process::Command::new("open")
+        .args(["-a", "Safari", url])
+        .spawn()
+        .map(|_| ())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn open_app_window(url: &str) -> std::io::Result<()> {
+    std::process::Command::new("xdg-open")
+        .arg(url)
+        .spawn()
+        .map(|_| ())
 }
 
 fn bind_with_dynamic_port(config: &mut ServerConfig) -> Result<TcpListener> {
@@ -216,13 +309,45 @@ fn handle_connection(
     let (path, query) = target.split_once('?').unwrap_or((target, ""));
     let params = parse_query(query);
 
-    let is_authorized = check_authorization(&request, &params, state);
+    let server_port = {
+        let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
+        state_guard.config.port
+    };
+    if !is_valid_host(&request, server_port) {
+        return write_json_response(&mut stream, 400, "{\"error\":\"invalid host header\"}");
+    }
+    if method == "POST" && !is_allowed_origin(&request, server_port) {
+        return write_json_response(&mut stream, 403, "{\"error\":\"forbidden: cross-origin\"}");
+    }
+
     let is_public = path == "/api/v1/health"
         || path == "/api/v1/bootstrap"
         || path == "/"
         || path == "/dashboard"
         || path.starts_with("/assets/");
 
+    let peer_ip = stream
+        .peer_addr()
+        .map_or_else(|_| String::new(), |addr| addr.ip().to_string());
+    let (is_authorized, rate_limited) = {
+        let mut state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
+        if !is_public && !state_guard.auth_allowed(&peer_ip) {
+            (false, true)
+        } else if !is_public {
+            let authorized = check_authorization(&request, &state_guard);
+            if authorized {
+                state_guard.clear_auth_failures(&peer_ip);
+            } else {
+                state_guard.record_auth_failure(&peer_ip);
+            }
+            (authorized, false)
+        } else {
+            (true, false)
+        }
+    };
+    if rate_limited {
+        return write_json_response(&mut stream, 429, "{\"error\":\"too many requests\"}");
+    }
     if !is_authorized && !is_public {
         return write_json_response(&mut stream, 401, "{\"error\":\"unauthorized\"}");
     }
@@ -631,14 +756,7 @@ fn handle_connection(
                 ),
             }
         }
-        ("GET", "/api/v1/dashboard") => {
-            let token = {
-                let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
-                state_guard.config.bootstrap_token.clone()
-            };
-            let html = crate::dashboard::render_dashboard(&token);
-            write_html_response(&mut stream, 200, &html)
-        }
+        ("GET", "/api/v1/dashboard") => serve_dashboard(&mut stream, state),
         ("POST", "/api/v1/ai/chat") => {
             let body = extract_body(&request);
             let query = extract_json_string(&body, "query").unwrap_or_default();
@@ -1070,15 +1188,8 @@ fn is_localhost_request(peer: Option<std::net::SocketAddr>) -> bool {
     }
 }
 
-fn check_authorization(
-    request: &str,
-    params: &BTreeMap<String, String>,
-    state: &Arc<Mutex<ServerState>>,
-) -> bool {
-    let expected_token = {
-        let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
-        state_guard.config.bootstrap_token.clone()
-    };
+fn check_authorization(request: &str, state: &ServerState) -> bool {
+    let expected_token = &state.config.bootstrap_token;
     if expected_token.is_empty() {
         return false;
     }
@@ -1093,10 +1204,60 @@ fn check_authorization(
             }
         }
     }
-    if let Some(provided) = params.get("token") {
-        return constant_time_eq(provided.as_bytes(), expected_token.as_bytes());
+    if let Some(cookie_line) = request
+        .lines()
+        .find(|line| line.to_ascii_lowercase().starts_with("cookie:"))
+    {
+        let cookie_header = cookie_line.split_once(':').map_or("", |(_, value)| value);
+        for part in cookie_header.split(';') {
+            let (name, value) = part.trim().split_once('=').unwrap_or((part.trim(), ""));
+            if name == "cse_session"
+                && constant_time_eq(value.as_bytes(), expected_token.as_bytes())
+            {
+                return true;
+            }
+        }
     }
     false
+}
+
+fn is_valid_host(request: &str, port: u16) -> bool {
+    let Some(host) = request.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        if name.eq_ignore_ascii_case("host") {
+            Some(value.trim())
+        } else {
+            None
+        }
+    }) else {
+        return false;
+    };
+    let (hostname, host_port) = match host.rsplit_once(':') {
+        Some((name, value)) if !value.is_empty() && value.chars().all(|c| c.is_ascii_digit()) => {
+            (name, Some(value))
+        }
+        _ => (host, None),
+    };
+    let hostname_ok = hostname.eq_ignore_ascii_case("localhost")
+        || hostname == "127.0.0.1"
+        || hostname == "[::1]";
+    let port_ok = host_port.is_none_or(|value| value.parse::<u16>().is_ok_and(|p| p == port));
+    hostname_ok && port_ok
+}
+
+fn is_allowed_origin(request: &str, port: u16) -> bool {
+    let Some(origin) = request.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        if name.eq_ignore_ascii_case("origin") {
+            Some(value.trim())
+        } else {
+            None
+        }
+    }) else {
+        // Non-browser clients (curl, CLI, MCP) do not send Origin.
+        return true;
+    };
+    origin == format!("http://localhost:{port}") || origin == format!("http://127.0.0.1:{port}")
 }
 
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
@@ -1115,16 +1276,26 @@ fn load_graph(root: &Path) -> Result<GraphIndex> {
 }
 
 fn serve_dashboard(stream: &mut TcpStream, state: &Arc<Mutex<ServerState>>) -> Result<()> {
-    let token = {
+    let (token, html) = {
         let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
-        state_guard.config.bootstrap_token.clone()
+        (
+            state_guard.config.bootstrap_token.clone(),
+            crate::dashboard::render_dashboard(),
+        )
     };
-    let html = crate::dashboard::render_dashboard(&token);
-    write_html_response(stream, 200, &html)
+    write_dashboard_response(stream, &token, &html)
+}
+
+fn write_dashboard_response(stream: &mut TcpStream, token: &str, html: &str) -> Result<()> {
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\nSet-Cookie: cse_session={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'\r\nCache-Control: no-store\r\n\r\n{html}",
+        html.len()
+    );
+    stream.write_all(response.as_bytes()).map_err(Error::Io)
 }
 
 fn handle_event_stream(stream: &mut TcpStream, state: &Arc<Mutex<ServerState>>) -> Result<()> {
-    let headers = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream; charset=utf-8\r\nCache-Control: no-store\r\nConnection: keep-alive\r\nX-Accel-Buffering: no\r\nAccess-Control-Allow-Origin: http://localhost\r\n\r\n";
+    let headers = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream; charset=utf-8\r\nCache-Control: no-store\r\nConnection: keep-alive\r\nX-Accel-Buffering: no\r\n\r\n";
     stream.write_all(headers.as_bytes())?;
     stream.flush()?;
     let mut last_id = 0_u64;
@@ -1218,160 +1389,44 @@ fn extract_body(request: &str) -> String {
 }
 
 fn extract_json_string(input: &str, key: &str) -> Option<String> {
-    let needle = format!("\"{key}\"");
-    let pos = input.find(&needle)?;
-    let after = &input[pos + needle.len()..];
-    let colon = after.find(':')?;
-    let rest = &after[colon + 1..];
-    let trimmed = rest.trim_start();
-    if !trimmed.starts_with('"') {
-        return None;
-    }
-    let start = 1;
-    let bytes = trimmed.as_bytes();
-    let mut end = start;
-    while end < bytes.len() {
-        if bytes[end] == b'\\' {
-            end += 2;
-            continue;
-        }
-        if bytes[end] == b'"' {
-            break;
-        }
-        end += 1;
-    }
-    Some(trimmed[start..end].to_string())
+    serde_json::from_str::<serde_json::Value>(input)
+        .ok()?
+        .get(key)?
+        .as_str()
+        .map(String::from)
 }
 
 fn extract_json_object(input: &str, key: &str) -> Option<String> {
-    let needle = format!("\"{key}\"");
-    let pos = input.find(&needle)?;
-    let after = &input[pos + needle.len()..];
-    let colon = after.find(':')?;
-    let rest = &after[colon + 1..];
-    let leading_ws = rest.len() - rest.trim_start().len();
-    let bytes = rest.as_bytes();
-    let mut idx = leading_ws;
-    if bytes.get(idx) != Some(&b'{') {
-        return None;
-    }
-    let start = idx;
-    let mut depth = 0_i32;
-    while idx < bytes.len() {
-        match bytes[idx] {
-            b'{' => depth += 1,
-            b'}' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(rest[start..=idx].to_string());
-                }
-            }
-            b'"' => {
-                idx += 1;
-                while idx < bytes.len() && bytes[idx] != b'"' {
-                    if bytes[idx] == b'\\' {
-                        idx += 1;
-                    }
-                    idx += 1;
-                }
-            }
-            _ => {}
-        }
-        idx += 1;
-    }
-    None
+    serde_json::from_str::<serde_json::Value>(input)
+        .ok()?
+        .get(key)?
+        .as_object()
+        .map(|object| serde_json::to_string(object).ok())?
 }
 
 fn parse_action_params(input: &str) -> ActionParams {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(input) else {
+        return ActionParams::default();
+    };
+    let Some(object) = value.as_object() else {
+        return ActionParams::default();
+    };
     let mut params = ActionParams::default();
-    if input.is_empty() {
-        return params;
-    }
-    let mut idx = 0;
-    let bytes = input.as_bytes();
-    while idx < bytes.len() {
-        if bytes[idx] == b'"' {
-            if let Some((key, end)) = parse_json_string(input, idx) {
-                idx = end;
-                idx = skip_ws(bytes, idx);
-                if idx < bytes.len() && bytes[idx] == b':' {
-                    idx = skip_ws(bytes, idx + 1);
-                    if bytes.get(idx) == Some(&b'"') {
-                        if let Some((value, next)) = parse_json_string(input, idx) {
-                            params.flags.insert(key, value);
-                            idx = next;
-                        } else {
-                            idx += 1;
-                        }
-                    } else {
-                        let (num, next) = parse_json_number(input, idx);
-                        params.flags.insert(key, num.to_string());
-                        idx = next;
-                    }
-                }
-            } else {
-                idx += 1;
+    for (key, value) in object {
+        match value {
+            serde_json::Value::String(text) => {
+                params.flags.insert(key.clone(), text.clone());
             }
-        } else {
-            idx += 1;
+            serde_json::Value::Number(number) => {
+                params.flags.insert(key.clone(), number.to_string());
+            }
+            serde_json::Value::Bool(flag) => {
+                params.flags.insert(key.clone(), flag.to_string());
+            }
+            _ => {}
         }
     }
     params
-}
-
-fn parse_json_string(input: &str, start: usize) -> Option<(String, usize)> {
-    let bytes = input.as_bytes();
-    if bytes.get(start) != Some(&b'"') {
-        return None;
-    }
-    let mut output = String::new();
-    let mut idx = start + 1;
-    while idx < bytes.len() {
-        match bytes[idx] {
-            b'"' => return Some((output, idx + 1)),
-            b'\\' => {
-                idx += 1;
-                match bytes.get(idx) {
-                    Some(&b'"') => output.push('"'),
-                    Some(&b'\\') => output.push('\\'),
-                    Some(&b'n') => output.push('\n'),
-                    Some(&b't') => output.push('\t'),
-                    Some(&b'r') => output.push('\r'),
-                    _ => {}
-                }
-            }
-            _ => {
-                let remaining = &input[idx..];
-                if let Some(ch) = remaining.chars().next() {
-                    output.push(ch);
-                    idx += ch.len_utf8() - 1;
-                }
-            }
-        }
-        idx += 1;
-    }
-    None
-}
-
-fn parse_json_number(input: &str, start: usize) -> (i64, usize) {
-    let bytes = input.as_bytes();
-    let mut idx = start;
-    let s = idx;
-    if idx < bytes.len() && bytes[idx] == b'-' {
-        idx += 1;
-    }
-    while idx < bytes.len() && bytes[idx].is_ascii_digit() {
-        idx += 1;
-    }
-    let value = input[s..idx].parse().unwrap_or(0);
-    (value, idx)
-}
-
-fn skip_ws(bytes: &[u8], mut idx: usize) -> usize {
-    while idx < bytes.len() && matches!(bytes[idx], b' ' | b'\t' | b'\n' | b'\r') {
-        idx += 1;
-    }
-    idx
 }
 
 fn write_json_response(stream: &mut TcpStream, status: u16, body: &str) -> Result<()> {
@@ -1382,23 +1437,13 @@ fn write_json_response(stream: &mut TcpStream, status: u16, body: &str) -> Resul
         403 => "Forbidden",
         404 => "Not Found",
         413 => "Payload Too Large",
+        429 => "Too Many Requests",
         500 => "Internal Server Error",
+        503 => "Service Unavailable",
         _ => "Error",
     };
     let response = format!(
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\nCache-Control: no-store\r\nAccess-Control-Allow-Origin: http://localhost\r\n\r\n{body}",
-        body.len()
-    );
-    stream.write_all(response.as_bytes()).map_err(Error::Io)
-}
-
-fn write_html_response(stream: &mut TcpStream, status: u16, body: &str) -> Result<()> {
-    let reason = match status {
-        200 => "OK",
-        _ => "Error",
-    };
-    let response = format!(
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'\r\nCache-Control: no-store\r\nAccess-Control-Allow-Origin: http://localhost\r\n\r\n{body}",
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\nCache-Control: no-store\r\n\r\n{body}",
         body.len()
     );
     stream.write_all(response.as_bytes()).map_err(Error::Io)
@@ -1406,8 +1451,111 @@ fn write_html_response(stream: &mut TcpStream, status: u16, body: &str) -> Resul
 
 fn write_asset_response(stream: &mut TcpStream, content_type: &str, body: &str) -> Result<()> {
     let response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\nCache-Control: no-cache\r\nAccess-Control-Allow-Origin: http://localhost\r\n\r\n{body}",
+        "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\nCache-Control: no-cache\r\n\r\n{body}",
         body.len()
     );
     stream.write_all(response.as_bytes()).map_err(Error::Io)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generate_token_is_hex_and_unique() {
+        let first = generate_token().unwrap_or_else(|error| panic!("generate token: {error}"));
+        let second = generate_token().unwrap_or_else(|error| panic!("generate token: {error}"));
+        assert_eq!(first.len(), 64);
+        assert!(first.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn host_validation_accepts_localhost_only() {
+        assert!(is_valid_host(
+            "GET / HTTP/1.1\r\nHost: localhost:8080\r\n\r\n",
+            8080
+        ));
+        assert!(is_valid_host(
+            "GET / HTTP/1.1\r\nHost: 127.0.0.1:8080\r\n\r\n",
+            8080
+        ));
+        assert!(is_valid_host(
+            "GET / HTTP/1.1\r\nHost: [::1]:8080\r\n\r\n",
+            8080
+        ));
+        assert!(is_valid_host(
+            "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n",
+            8080
+        ));
+        assert!(!is_valid_host(
+            "GET / HTTP/1.1\r\nHost: evil.example.com\r\n\r\n",
+            8080
+        ));
+        assert!(!is_valid_host(
+            "GET / HTTP/1.1\r\nHost: localhost:9999\r\n\r\n",
+            8080
+        ));
+        assert!(!is_valid_host("GET / HTTP/1.1\r\n\r\n", 8080));
+    }
+
+    #[test]
+    fn origin_validation_accepts_localhost_only() {
+        assert!(is_allowed_origin(
+            "POST / HTTP/1.1\r\nOrigin: http://localhost:8080\r\n\r\n",
+            8080
+        ));
+        assert!(is_allowed_origin(
+            "POST / HTTP/1.1\r\nOrigin: http://127.0.0.1:8080\r\n\r\n",
+            8080
+        ));
+        assert!(!is_allowed_origin(
+            "POST / HTTP/1.1\r\nOrigin: http://evil.example.com\r\n\r\n",
+            8080
+        ));
+        assert!(!is_allowed_origin(
+            "POST / HTTP/1.1\r\nOrigin: http://localhost:9999\r\n\r\n",
+            8080
+        ));
+        assert!(is_allowed_origin("POST / HTTP/1.1\r\n\r\n", 8080));
+    }
+
+    #[test]
+    fn authorization_accepts_bearer_and_cookie_but_rejects_query_tokens() {
+        let config = ServerConfig {
+            host: "127.0.0.1".to_string(),
+            port: 8080,
+            bootstrap_token: "test-token-123".to_string(),
+            open_desktop: false,
+        };
+        let state = ServerState::new(config);
+        let bearer = "GET /api/v1/graph HTTP/1.1\r\nAuthorization: Bearer test-token-123\r\n\r\n";
+        assert!(check_authorization(bearer, &state));
+        assert!(check_authorization(
+            "GET /api/v1/graph HTTP/1.1\r\nCookie: cse_session=test-token-123\r\n\r\n",
+            &state
+        ));
+        let query = "GET /api/v1/graph?token=test-token-123 HTTP/1.1\r\n\r\n";
+        assert!(!check_authorization(query, &state));
+        let wrong = "GET /api/v1/graph HTTP/1.1\r\nAuthorization: Bearer wrong\r\n\r\n";
+        assert!(!check_authorization(wrong, &state));
+    }
+
+    #[test]
+    fn rate_limiter_blocks_after_max_attempts() {
+        let config = ServerConfig {
+            host: "127.0.0.1".to_string(),
+            port: 8080,
+            bootstrap_token: "test-token".to_string(),
+            open_desktop: false,
+        };
+        let mut state = ServerState::new(config);
+        for _ in 0..AUTH_MAX_ATTEMPTS {
+            assert!(state.auth_allowed("127.0.0.1"));
+            state.record_auth_failure("127.0.0.1");
+        }
+        assert!(!state.auth_allowed("127.0.0.1"));
+        state.clear_auth_failures("127.0.0.1");
+        assert!(state.auth_allowed("127.0.0.1"));
+    }
 }

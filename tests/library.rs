@@ -44,6 +44,25 @@ pub fn login_endpoint(user: &str, password: &str) -> bool {
 "#,
     )
     .unwrap_or_else(|error| panic!("write api fixture: {error}"));
+    fs::write(
+        root.join("CODESPACE.md"),
+        r#"# Repository brain
+
+<!-- cse:cell
+id: auth.no-credential-logs
+title: Authentication logging boundary
+kind: constraint
+status: accepted
+priority: critical
+tags: authentication, security, credentials
+paths: src/auth.rs
+symbols: authenticate
+-->
+Authentication code must never log passwords or raw credentials.
+<!-- /cse:cell -->
+"#,
+    )
+    .unwrap_or_else(|error| panic!("write context fixture: {error}"));
 }
 
 fn git(root: &Path, args: &[&str]) {
@@ -68,8 +87,8 @@ fn indexes_searches_compacts_and_persists_decisions() {
         .unwrap_or_else(|error| panic!("first index: {error}"));
     let second = build(&root, &IndexOptions::default())
         .unwrap_or_else(|error| panic!("second index: {error}"));
-    assert_eq!(first.files_indexed, 2);
-    assert_eq!(second.files_skipped_unchanged, 2);
+    assert_eq!(first.files_indexed, 3);
+    assert_eq!(second.files_skipped_unchanged, 3);
 
     let mut graph = storage::load(&root).unwrap_or_else(|error| panic!("load index: {error}"));
     let hits = find_symbols(&graph, "login", Some(SymbolKind::Function), 10);
@@ -87,6 +106,10 @@ fn indexes_searches_compacts_and_persists_decisions() {
     )
     .unwrap_or_else(|error| panic!("build context: {error}"));
     assert!(!bundle.items.is_empty());
+    assert_eq!(bundle.cells.len(), 1);
+    assert_eq!(bundle.cells[0].id, "auth.no-credential-logs");
+    assert!(bundle.pack_id.starts_with("ctx-"));
+    assert!(bundle.metrics.baseline_tokens >= bundle.estimated_tokens);
     assert!(bundle.estimated_tokens <= 500);
 
     let id = remember(
@@ -114,6 +137,50 @@ fn indexes_searches_compacts_and_persists_decisions() {
     assert!(!redacted.content.contains("correct-horse"));
 
     let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn context_cells_and_large_symbols_share_one_hard_budget() {
+    let root = temp_project("context-budget");
+    let mut source = String::from("pub fn oversized_authentication() {\n");
+    for index in 0..240 {
+        source.push_str(&format!("    let value_{index} = {index};\n"));
+    }
+    source.push_str("}\n");
+    fs::write(root.join("src/huge.rs"), source)
+        .unwrap_or_else(|error| panic!("write large fixture: {error}"));
+    fs::write(
+        root.join("CODESPACE.md"),
+        r#"<!-- cse:cell
+id: auth.large-contract
+status: accepted
+priority: critical
+tags: authentication
+paths: src/huge.rs
+symbols: oversized_authentication
+-->
+Authentication stays local and every generated value must remain auditable.
+<!-- /cse:cell -->
+"#,
+    )
+    .unwrap_or_else(|error| panic!("write budget cell: {error}"));
+    build(&root, &IndexOptions::default())
+        .unwrap_or_else(|error| panic!("index large fixture: {error}"));
+    let graph = storage::load(&root).unwrap_or_else(|error| panic!("load large index: {error}"));
+    let bundle = build_context(
+        &root,
+        &graph,
+        "authentication",
+        &ContextOptions {
+            max_tokens: 160,
+            max_items: 3,
+            ..ContextOptions::default()
+        },
+    )
+    .unwrap_or_else(|error| panic!("build budgeted context: {error}"));
+    assert!(!bundle.cells.is_empty());
+    assert!(!bundle.items.is_empty());
+    assert!(bundle.estimated_tokens <= 160);
 }
 
 #[test]

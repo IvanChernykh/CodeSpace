@@ -31,6 +31,7 @@ where
         "history" => command_history(&parsed),
         "remember" => command_remember(&parsed),
         "serve" => command_serve(&parsed),
+        "desktop" => command_desktop(&parsed),
         "export" => command_export(&parsed),
         "stats" | "status" => command_stats(&parsed),
         "doctor" => command_doctor(&parsed),
@@ -158,7 +159,7 @@ fn command_context(args: &ParsedArgs) -> Result<i32> {
         }
     };
     write_output(args, &rendered)?;
-    Ok((bundle.items.is_empty()) as i32)
+    Ok((bundle.items.is_empty() && bundle.cells.is_empty()) as i32)
 }
 
 fn command_find(args: &ParsedArgs) -> Result<i32> {
@@ -330,17 +331,22 @@ fn command_serve(args: &ParsedArgs) -> Result<i32> {
         || (!args.flag("rest")
             && !args.flag("dashboard")
             && !args.flag("server")
+            && !args.flag("desktop")
             && args.value("port").is_none())
     {
         crate::mcp::serve(&root, graph)?;
         return Ok(0);
     }
-    if args.flag("dashboard") || args.flag("server") {
+    if args.flag("dashboard") || args.flag("server") || args.flag("desktop") {
         let port = args
             .value("port")
             .and_then(|value| value.parse::<u16>().ok())
             .unwrap_or(8080);
-        let config = crate::server::ServerConfig::new(port);
+        let config = if args.flag("desktop") {
+            crate::server::ServerConfig::new(port)?.with_desktop()
+        } else {
+            crate::server::ServerConfig::new(port)?
+        };
         crate::server::serve(&root, config)?;
         return Ok(0);
     }
@@ -356,6 +362,20 @@ fn command_serve(args: &ParsedArgs) -> Result<i32> {
         ));
     }
     crate::rest::serve(&root, graph, &format!("{host}:{port}"))?;
+    Ok(0)
+}
+
+fn command_desktop(args: &ParsedArgs) -> Result<i32> {
+    let root = root_from_args(args)?;
+    ensure_initialized(&root)?;
+    let port = args
+        .value("port")
+        .and_then(|value| value.parse::<u16>().ok())
+        .unwrap_or(8080);
+    crate::server::serve(
+        &root,
+        crate::server::ServerConfig::new(port)?.with_desktop(),
+    )?;
     Ok(0)
 }
 
@@ -1272,9 +1292,10 @@ GITHUB COMMANDS
   cse github set-repo --owner <o> --repo <r>
 
 SERVER COMMANDS
+  cse desktop [--port 8080]          Launch the secure local desktop window
   cse serve --mcp
   cse serve --rest [--host 127.0.0.1] [--port 8080]
-  cse serve --dashboard [--port 8080]
+  cse serve --dashboard [--desktop] [--port 8080]
 
 WORKSPACE COMMANDS
   cse workspace list

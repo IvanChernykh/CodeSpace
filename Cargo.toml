@@ -4,9 +4,11 @@ version = "2.0.0"
 edition = "2024"
 rust-version = "1.85"
 authors = ["CodeSpace Contributors"]
-description = "Local-first advanced IDE assistant with semantic graph, dashboard, MCP, and skills"
+description = "Local-first repository intelligence and deterministic AI context packs"
 license = "Apache-2.0"
 readme = "README.md"
+repository = "https://github.com/IvanChernykh/CodeSpace"
+homepage = "https://ivanchernykh.github.io/CodeSpace/"
 keywords = ["code-graph", "mcp", "ai", "cli", "static-analysis"]
 categories = ["command-line-utilities", "development-tools"]
 include = [
@@ -28,6 +30,7 @@ include = [
     "Cargo.lock",
     "rust-toolchain.toml",
     "README.md",
+    "CODESPACE.md",
     "LICENSE",
     "NOTICE",
     "SECURITY.md",
@@ -54,6 +57,10 @@ panic = "abort"
 
 [profile.dev]
 debug = 1
+
+[dependencies]
+getrandom = "0.3"
+serde_json = "1"
 
 [lints.rust]
 unsafe_code = "forbid"

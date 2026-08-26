@@ -15,24 +15,25 @@ from pathlib import Path
 from typing import Any
 
 HOST = "127.0.0.1"
-PORT = 18080
+START_PORT = 18081
+ACTIVE_PORT = START_PORT
 
 
 def request(
     method: str,
     path: str,
     *,
-    token: str = "",
+    cookie: str = "",
     payload: dict[str, Any] | None = None,
 ) -> tuple[int, str, dict[str, str]]:
     body = json.dumps(payload).encode("utf-8") if payload is not None else None
     headers = {"Connection": "close"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
+    if cookie:
+        headers["Cookie"] = f"cse_session={cookie}"
     if body is not None:
         headers["Content-Type"] = "application/json"
         headers["Content-Length"] = str(len(body))
-    connection = http.client.HTTPConnection(HOST, PORT, timeout=5)
+    connection = http.client.HTTPConnection(HOST, ACTIVE_PORT, timeout=5)
     try:
         connection.request(method, path, body=body, headers=headers)
         response = connection.getresponse()
@@ -43,9 +44,10 @@ def request(
         connection.close()
 
 
-def wait_for_server(process: subprocess.Popen[str]) -> str:
+def wait_for_server(process: subprocess.Popen[str]) -> None:
+    global ACTIVE_PORT
     deadline = time.monotonic() + 20
-    token = ""
+    listening = False
     lines: list[str] = []
     while time.monotonic() < deadline:
         if process.poll() is not None:
@@ -56,13 +58,17 @@ def wait_for_server(process: subprocess.Popen[str]) -> str:
         if line:
             stripped = line.rstrip()
             lines.append(stripped)
-            if stripped.startswith("Session token: "):
-                token = stripped.removeprefix("Session token: ").strip()
-        if token:
+            if stripped.startswith("CodeSpace server listening on http://"):
+                try:
+                    ACTIVE_PORT = int(stripped.rsplit(":", 1)[1])
+                except ValueError as error:
+                    raise RuntimeError(f"invalid server address: {stripped}") from error
+                listening = True
+        if listening:
             try:
                 status, body, _ = request("GET", "/api/v1/health")
                 if status == 200 and '"status":"ok"' in body:
-                    return token
+                    return
             except OSError:
                 pass
         time.sleep(0.05)
@@ -80,7 +86,12 @@ def assert_json(status: int, body: str, expected_status: int = 200) -> dict[str,
 
 def run() -> None:
     repository = Path(__file__).resolve().parents[1]
-    binary = repository / "target" / "debug" / ("cse.exe" if os.name == "nt" else "cse")
+    binary_override = os.environ.get("CSE_BINARY")
+    binary = (
+        Path(binary_override)
+        if binary_override
+        else repository / "target" / "debug" / ("cse.exe" if os.name == "nt" else "cse")
+    )
     if not binary.exists():
         raise RuntimeError(f"missing debug binary: {binary}")
 
@@ -89,6 +100,20 @@ def run() -> None:
         (workspace / "src").mkdir()
         (workspace / "src" / "lib.rs").write_text(
             "pub fn smoke_value() -> usize { 42 }\n",
+            encoding="utf-8",
+        )
+        (workspace / "CODESPACE.md").write_text(
+            """<!-- cse:cell
+id: smoke.local-contract
+status: accepted
+priority: critical
+tags: smoke, local
+paths: src/lib.rs
+symbols: smoke_value
+-->
+The smoke value is local repository evidence.
+<!-- /cse:cell -->
+""",
             encoding="utf-8",
         )
         subprocess.run(
@@ -107,7 +132,7 @@ def run() -> None:
                 "--path",
                 str(workspace),
                 "--port",
-                str(PORT),
+                str(START_PORT),
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
@@ -117,9 +142,7 @@ def run() -> None:
         if process.stderr is None:
             raise RuntimeError("failed to capture dashboard stderr")
         try:
-            token = wait_for_server(process)
-            if len(token) < 32:
-                raise AssertionError("dashboard session token is unexpectedly short")
+            wait_for_server(process)
 
             status, html, headers = request("GET", "/")
             if status != 200 or "CodeSpace — IDE Assistant" not in html:
@@ -128,6 +151,12 @@ def run() -> None:
                 raise AssertionError("dashboard must expose exactly one frontend runtime")
             if "content-security-policy" not in headers:
                 raise AssertionError("dashboard response is missing Content-Security-Policy")
+            cookie = headers.get("set-cookie", "")
+            if "HttpOnly" not in cookie or "SameSite=Strict" not in cookie:
+                raise AssertionError("dashboard session cookie is missing strict browser flags")
+            session_cookie = cookie.partition("cse_session=")[2].partition(";")[0]
+            if len(session_cookie) < 32:
+                raise AssertionError("dashboard session cookie is unexpectedly short")
 
             for asset in ("/assets/main.js", "/assets/dashboard.css"):
                 asset_status, asset_body, _ = request("GET", asset)
@@ -140,25 +169,44 @@ def run() -> None:
                     f"protected graph endpoint returned {unauthorized_status} without token"
                 )
 
-            graph = assert_json(*request("GET", "/api/v1/graph", token=token)[:2])
+            graph = assert_json(
+                *request("GET", "/api/v1/graph", cookie=session_cookie)[:2]
+            )
             if not graph.get("files") or not graph.get("symbols"):
                 raise AssertionError("graph endpoint returned an empty initialized workspace")
-            stats = assert_json(*request("GET", "/api/v1/stats", token=token)[:2])
+            stats = assert_json(
+                *request("GET", "/api/v1/stats", cookie=session_cookie)[:2]
+            )
             if int(stats.get("files", 0)) < 1:
                 raise AssertionError("stats endpoint did not report indexed files")
+            context = assert_json(
+                *request(
+                    "GET",
+                    "/api/v1/context?q=local+smoke&max_tokens=500&max_items=4",
+                    cookie=session_cookie,
+                )[:2]
+            )
+            if not str(context.get("pack_id", "")).startswith("ctx-"):
+                raise AssertionError("context endpoint did not return a stable pack id")
+            if not context.get("cells") or not context.get("metrics"):
+                raise AssertionError("context endpoint did not return cells and metrics")
+            if int(context.get("estimated_tokens", 501)) > 500:
+                raise AssertionError("context endpoint exceeded its hard token budget")
 
             long_title = "HTTP body " + ("x" * 32768)
             task = assert_json(
                 *request(
                     "POST",
                     "/api/v1/tasks",
-                    token=token,
+                    cookie=session_cookie,
                     payload={"title": long_title, "priority": "high", "tags": "smoke,http"},
                 )[:2]
             )
             if not task.get("id"):
                 raise AssertionError("task creation did not return an id")
-            tasks = assert_json(*request("GET", "/api/v1/tasks", token=token)[:2])
+            tasks = assert_json(
+                *request("GET", "/api/v1/tasks", cookie=session_cookie)[:2]
+            )
             records = tasks.get("tasks")
             if not isinstance(records, list) or not any(
                 isinstance(item, dict) and item.get("title") == long_title for item in records
@@ -170,7 +218,9 @@ def run() -> None:
                 ("/api/v1/mcp", "servers"),
                 ("/api/v1/settings", "effective"),
             ):
-                payload = assert_json(*request("GET", endpoint, token=token)[:2])
+                payload = assert_json(
+                    *request("GET", endpoint, cookie=session_cookie)[:2]
+                )
                 if key not in payload:
                     raise AssertionError(f"{endpoint} is missing expected key {key}")
 

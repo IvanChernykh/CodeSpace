@@ -4,6 +4,7 @@ pub mod ai;
 pub mod application;
 pub mod cli;
 pub mod context;
+pub mod context_cells;
 pub mod dashboard;
 pub mod events;
 pub mod export;

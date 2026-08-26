@@ -31,8 +31,15 @@ if html.count("<script") != 1:
     raise SystemExit("dashboard must load exactly one JavaScript runtime")
 if "fetch('/api/v1" in html or 'fetch("/api/v1' in html:
     raise SystemExit("inline feature API clients are forbidden")
-if 'meta name="cse-session"' not in html:
-    raise SystemExit("session token meta bootstrap is missing")
+if "cse-session" in html:
+    raise SystemExit("session token must not be embedded in the page (cookie-based auth)")
+frontend_sources = "\n".join(
+    path.read_text(encoding="utf-8")
+    for directory in (root / "dashboard/src", root / "dashboard/dist")
+    for path in directory.rglob("*.js" if directory.name == "dist" else "*.ts")
+)
+if "?token=" in frontend_sources or 'headers.set("Authorization"' in frontend_sources:
+    raise SystemExit("frontend credentials must use the HttpOnly cookie, never URLs or JS headers")
 if len(js) < 10_000 or len(css) < 10_000:
     raise SystemExit("compiled dashboard assets are unexpectedly small")
 if "FileGraphView" not in ts or "resolve_active_root" in ts:

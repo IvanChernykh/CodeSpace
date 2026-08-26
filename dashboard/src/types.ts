@@ -100,11 +100,38 @@ export interface ContextItem {
 }
 
 export interface ContextBundle {
+  pack_id: string;
+  graph_revision: number;
   query: string;
   generated_unix_ms: number;
   estimated_tokens: number;
   source_bytes: number;
   returned_bytes: number;
+  metrics: {
+    budget_tokens: number;
+    baseline_tokens: number;
+    saved_tokens: number;
+    compression_percent: number;
+    code_items: number;
+    knowledge_cells: number;
+  };
+  cells: Array<{
+    id: string;
+    title: string;
+    kind: string;
+    status: string;
+    priority: number;
+    path: string;
+    line_start: number;
+    line_end: number;
+    score_milli: number;
+    tags: string[];
+    evidence_paths: string[];
+    symbols: string[];
+    content_hash: string;
+    redactions: number;
+    content: string;
+  }>;
   items: ContextItem[];
   warnings: string[];
 }

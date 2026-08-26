@@ -2,7 +2,7 @@
 
 # CodeSpace 2.0
 
-**Local-first IDE assistant with semantic code graph, dashboard, MCP, and skills.**
+**A local-first repository brain that compiles trustworthy, token-efficient context for humans and AI.**
 
 [![CI](https://github.com/IvanChernykh/CodeSpace/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanChernykh/CodeSpace/actions/workflows/ci.yml)
 [![Pages](https://github.com/IvanChernykh/CodeSpace/actions/workflows/pages.yml/badge.svg)](https://ivanchernykh.github.io/CodeSpace/)
@@ -18,7 +18,9 @@
 
 ## Overview
 
-`cse` is a **zero-dependency, local-first** IDE assistant written in Rust. It indexes your repository, extracts symbols and relationships, ranks task-relevant code, redacts secrets, analyzes Git impact, and exposes everything through **CLI, MCP, REST, an embedded dashboard, and a Rust library** — all without sending a single byte to the cloud.
+`cse` is a **small-runtime, local-first** repository intelligence engine written in Rust. It combines reviewable Markdown Context Cells with a semantic code graph, compiles deterministic AI evidence packs, redacts secrets, analyzes Git impact, and exposes the same model through **CLI, MCP, REST, a desktop mode, an embedded dashboard, and a Rust library** — without sending source code to a cloud service.
+
+Git remains the compatible history and transport layer. CodeSpace adds what Git does not model: intent, constraints, decisions, symbol relationships, provenance, token budgets, and pre-change blast radius.
 
 CodeSpace 2.0 introduces:
 - **Action Registry** — unified dispatch for all interfaces
@@ -27,6 +29,9 @@ CodeSpace 2.0 introduces:
 - **Skills Platform** — manifest-based skills with permissions
 - **Local Daemon** — session-secured HTTP server with SSE events
 - **Settings System** — layered global/workspace/session configuration
+- **Context Cells** — versioned Markdown knowledge with stable IDs, status, priority, tags, code evidence, and hashes
+- **Context Packs** — deterministic, token-bounded AI input with an explicit trust boundary and savings telemetry
+- **Desktop Mode** — secure loopback app-window launched with one command
 
 > **No source code leaves your machine. No model or embedding provider required. No database runtime needed.**
 
@@ -37,13 +42,15 @@ CodeSpace 2.0 introduces:
 | **Semantic Graph** | Files, symbols, edges (calls, imports, extends, test-covers, configures), precision tiers, evidence |
 | **12 Languages** | Rust, Python, JS/TS, Go, Java/Kotlin, C/C++, C#, Swift, PHP, Ruby, shell + structural fallback |
 | **Action Registry** | 12 typed actions with aliases, categories, unified dispatch across CLI/MCP/REST/dashboard |
-| **Dashboard** | Embedded web UI: graph canvas, symbol inspector, live search, workspace selector |
+| **Context Engine** | Markdown Context Cells + graph ranking, deterministic pack IDs, provenance, token budgeting, savings metrics, secret redaction |
+| **Context Studio** | Inspect the exact knowledge/code split, budget, warnings, evidence paths, hashes, and estimated savings before an AI call |
+| **Desktop Mode** | `cse desktop` opens the loopback UI as a standalone app-window with no session token in URLs or JavaScript |
+| **Dashboard** | Embedded desktop-grade UI: Context Studio, graph canvas, symbol inspector, search, workspace selector |
 | **Workspace Manager** | Register multiple repos, switch between them, per-workspace settings |
 | **Skills Platform** | 6 built-in skills (code-review, test-cov, dep-audit, doc-gen, refactor-trace), permissions system |
 | **Settings** | Global → workspace → session priority chain with JSON persistence |
 | **Event Bus** | 13 event types with SSE streaming for realtime UI updates |
 | **Local Daemon** | Localhost-only HTTP, session token auth, dynamic port selection, SSE events |
-| **Context Engine** | Lexical + graph ranking, token budgeting, comment compaction, secret redaction |
 | **Impact Analysis** | Git diff mapping, reverse-edge traversal, depth-limited blast radius, risk score |
 | **Decision Memory** | Persistent records by file, symbol, session, agent, rationale, tags |
 | **Export** | JSON, Graphviz DOT, standalone interactive HTML |
@@ -86,7 +93,7 @@ cse init
 # 2. Search for symbols
 cse find "authenticate" --type function
 
-# 3. Build context for an AI agent
+# 3. Add concise repository knowledge (see CODESPACE.md in this repo), then build a Context Pack
 cse context --query "login returns 500 error" --max-tokens 1200
 
 # 4. Analyze Git impact
@@ -109,22 +116,51 @@ Watch for changes:
 cse update --watch
 ```
 
-## Dashboard
+## Desktop and dashboard
 
-Launch the embedded web UI:
+Launch the desktop window:
+
+```bash
+cse desktop
+```
+
+Or run the embedded web UI without opening a window:
 
 ```bash
 cse serve --dashboard --port 8080
 ```
 
-Then open `http://localhost:8080` in your browser. The dashboard provides:
+The interface provides:
+- **Context Studio** — inspect Markdown knowledge and exact source evidence before inference
+- **Pack telemetry** — stable pack ID, graph revision, token use, estimated savings, warnings, and provenance
 - **Graph canvas** — interactive symbol relationship visualization
 - **Symbol inspector** — click any node to see details
 - **Live search** — real-time symbol lookup
 - **Workspace selector** — switch between registered projects
 - **Event stream** — SSE-powered live updates
 
-The server binds to **localhost only** with **session token authentication**. If the requested port is busy, it automatically finds a free one.
+The server binds to **localhost only**. The first local page response installs an **HttpOnly, SameSite=Strict** session cookie; the credential is not embedded in HTML, JavaScript, or the URL. If the requested port is busy, CodeSpace finds a free one and desktop mode opens the selected port.
+
+## Markdown Context Cells
+
+Context Cells live in normal indexed `.md`/`.mdx` files and are reviewed with the code they describe:
+
+```markdown
+<!-- cse:cell
+id: auth.session-boundary
+title: Local authentication contract
+kind: constraint
+status: accepted
+priority: critical
+tags: auth, security
+paths: src/server.rs
+symbols: check_authorization
+-->
+The control plane is loopback-only and browser auth uses an HttpOnly cookie.
+<!-- /cse:cell -->
+```
+
+Cells are treated as repository evidence, never as higher-priority AI instructions. See [`CODESPACE.md`](CODESPACE.md) for the live repository brain and [`docs/CONTEXT_CELLS.md`](docs/CONTEXT_CELLS.md) for the protocol.
 
 ## Workspace Manager
 
@@ -235,6 +271,9 @@ Key security defaults:
 - **Secret redaction** — credentials redacted from context and MCP file reads
 - **Path traversal protection** — `cse read` blocks `..` and verifies canonical paths stay within project root
 - **Session tokens** — dashboard server uses constant-time token comparison
+- **Fail-closed entropy** — the dashboard refuses to start if the OS cannot provide cryptographically secure randomness
+- **Browser isolation** — HttpOnly/SameSite cookie auth, strict Host/Origin validation, CSP, frame denial, and no permissive CORS
+- **Context trust boundary** — Markdown cells are labeled as evidence; unsafe evidence paths and duplicate IDs are rejected or warned
 - **Localhost binding** — REST and dashboard bind to `127.0.0.1` only
 - **Remote opt-in** — remote REST requires explicit `--allow-remote` flag
 - **Symlink protection** — symlinks are not followed during indexing
@@ -265,7 +304,8 @@ src/
   storage.rs        deterministic crash-aware persistence
   indexer.rs        traversal, ignore rules, incremental updates, watch
   search.rs         lexical and graph ranking
-  context.rs        compaction and token budgeting
+  context.rs        deterministic Context Pack compiler and token telemetry
+  context_cells.rs  safe Markdown cell parsing, validation, and ranking
   secret.rs         credential redaction
   impact.rs         Git diff and blast radius
   memory.rs         engineering decision history

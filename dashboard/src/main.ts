@@ -133,11 +133,40 @@ interface ContextItem {
   content: string;
 }
 
+interface ContextCell {
+  id: string;
+  title: string;
+  kind: string;
+  status: string;
+  priority: number;
+  path: string;
+  line_start: number;
+  line_end: number;
+  score_milli: number;
+  tags: string[];
+  evidence_paths: string[];
+  symbols: string[];
+  content_hash: string;
+  redactions: number;
+  content: string;
+}
+
 interface ContextBundle {
+  pack_id: string;
+  graph_revision: number;
   query: string;
   estimated_tokens: number;
   source_bytes: number;
   returned_bytes: number;
+  metrics: {
+    budget_tokens: number;
+    baseline_tokens: number;
+    saved_tokens: number;
+    compression_percent: number;
+    code_items: number;
+    knowledge_cells: number;
+  };
+  cells: ContextCell[];
   items: ContextItem[];
   warnings: string[];
 }
@@ -231,12 +260,6 @@ class ApiError extends Error {
 }
 
 class ApiClient {
-  private readonly token: string;
-  constructor() {
-    const meta = document.querySelector<HTMLMetaElement>('meta[name="cse-session"]');
-    this.token = meta?.content || ((window as Window & { __CSE_BOOTSTRAP__?: { token?: string } }).__CSE_BOOTSTRAP__?.token ?? "");
-  }
-
   private query(values: Record<string, string | number | boolean | undefined>): string {
     const params = new URLSearchParams();
     Object.entries(values).forEach(([key, value]) => {
@@ -248,7 +271,6 @@ class ApiClient {
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers = new Headers(init.headers);
-    if (this.token) headers.set("Authorization", `Bearer ${this.token}`);
     if (init.body) headers.set("Content-Type", "application/json");
     let response: Response;
     try {
@@ -303,7 +325,7 @@ class ApiClient {
   settings = (): Promise<{ global: JsonObject; workspace: JsonObject; effective: JsonObject }> => this.request("/settings");
   setSetting = (key: string, value: string, scope: string): Promise<unknown> => this.request("/settings", { method: "POST", body: JSON.stringify({ key, value, scope }) });
   githubStatus = (): Promise<JsonObject> => this.request("/github/status");
-  eventsUrl = (): string => `/api/v1/events${this.query({ token: this.token })}`;
+  eventsUrl = (): string => "/api/v1/events";
 }
 
 class Toasts {
@@ -1076,7 +1098,21 @@ class CodeSpaceApp {
     root.innerHTML = this.loadingCard("Building repository context");
     try {
       const bundle = await this.api.context(query, maxTokens, maxItems);
-      root.innerHTML = `<div class="result-summary"><div><span>Estimated tokens</span><strong>${bundle.estimated_tokens}</strong></div><div><span>Returned</span><strong>${formatBytes(bundle.returned_bytes)}</strong></div><div><span>Source scanned</span><strong>${formatBytes(bundle.source_bytes)}</strong></div><div><span>Items</span><strong>${bundle.items.length}</strong></div></div>${bundle.warnings.map((warning) => `<div class="callout warning">${escapeHtml(warning)}</div>`).join("")}${bundle.items.map((item) => `<article class="code-result"><header><div><span class="badge">${escapeHtml(item.kind)}</span><strong>${escapeHtml(item.symbol || item.path)}</strong></div><code>${escapeHtml(item.path)}:${item.line_start}-${item.line_end}</code></header><pre>${escapeHtml(item.content)}</pre></article>`).join("") || `<div class="empty-state"><strong>No context matched</strong><span>Try a symbol, file path, or more specific question.</span></div>`}`;
+      const usedPercent = Math.min(100, Math.round((bundle.estimated_tokens / Math.max(1, bundle.metrics.budget_tokens)) * 100));
+      const cells = bundle.cells.map((cell) => `<article class="context-cell" data-status="${escapeHtml(cell.status)}"><header><div><span class="cell-kind">${escapeHtml(cell.kind)}</span><span class="cell-status">${escapeHtml(cell.status)}</span></div><code>${escapeHtml(cell.id)}</code></header><div class="context-cell-body"><div class="cell-title-row"><div><strong>${escapeHtml(cell.title)}</strong><small>${escapeHtml(cell.path)}:${cell.line_start} · priority ${cell.priority}</small></div><span class="hash-chip" title="Content hash">${escapeHtml(cell.content_hash.slice(0, 8))}</span></div><pre>${escapeHtml(cell.content)}</pre>${cell.evidence_paths.length ? `<footer><span>Evidence</span>${cell.evidence_paths.map((path) => `<code>${escapeHtml(path)}</code>`).join("")}</footer>` : ""}</div></article>`).join("");
+      const code = bundle.items.map((item) => `<article class="code-result"><header><div><span class="badge">${escapeHtml(item.kind)}</span><strong>${escapeHtml(item.symbol || item.path)}</strong></div><code>${escapeHtml(item.path)}:${item.line_start}-${item.line_end}</code></header><pre>${escapeHtml(item.content)}</pre></article>`).join("");
+      const evidence = cells || code
+        ? `<div class="context-columns"><section><div class="context-section-heading"><div><span>Knowledge layer</span><strong>Neuro-context cells</strong></div><b>${bundle.cells.length}</b></div>${cells || `<div class="empty-inline">No matching cells in indexed Markdown.</div>`}</section><section><div class="context-section-heading"><div><span>Source layer</span><strong>Exact code evidence</strong></div><b>${bundle.items.length}</b></div>${code || `<div class="empty-inline">No matching code symbols.</div>`}</section></div>`
+        : `<div class="empty-state"><strong>No context matched</strong><span>Try a decision, constraint, symbol, file path, or architectural term.</span></div>`;
+      root.innerHTML = `<section class="context-pack-head"><div class="pack-identity"><span>Context Pack · graph r${bundle.graph_revision}</span><strong>${escapeHtml(bundle.pack_id)}</strong><button class="button subtle small" type="button" data-copy-context>Copy JSON</button></div><div class="token-meter"><div><span>Token budget</span><strong>${bundle.estimated_tokens.toLocaleString()} / ${bundle.metrics.budget_tokens.toLocaleString()}</strong></div><progress max="100" value="${usedPercent}">${usedPercent}%</progress></div><div class="pack-metrics"><div><span>Tokens avoided</span><strong>${bundle.metrics.saved_tokens.toLocaleString()}</strong><small>${bundle.metrics.compression_percent}% less context</small></div><div><span>Knowledge</span><strong>${bundle.metrics.knowledge_cells}</strong><small>reviewable cells</small></div><div><span>Code</span><strong>${bundle.metrics.code_items}</strong><small>exact snippets</small></div><div><span>Provenance</span><strong>${formatBytes(bundle.source_bytes)}</strong><small>${formatBytes(bundle.returned_bytes)} returned</small></div></div></section>${bundle.warnings.map((warning) => `<div class="callout warning">${escapeHtml(warning)}</div>`).join("")}${evidence}`;
+      root.querySelector<HTMLButtonElement>("[data-copy-context]")?.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(JSON.stringify(bundle, null, 2));
+          this.toasts.success(`Copied ${bundle.pack_id}`);
+        } catch {
+          this.toasts.error("Clipboard access is unavailable");
+        }
+      });
     } catch (error) {
       root.innerHTML = this.errorCard(this.errorMessage(error));
     }

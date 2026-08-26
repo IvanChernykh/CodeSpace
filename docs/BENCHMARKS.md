@@ -32,6 +32,9 @@ Measure whether CodeSpace reduces context volume, tool calls, latency, and task 
 
 - Median and p95 wall-clock latency.
 - Median context bytes returned by CodeSpace.
+- Median `estimated_tokens`, `saved_tokens`, and `compression_percent` reported by Context Packs.
+- Knowledge-cell precision: selected cells judged relevant / all selected cells.
+- Source provenance precision: selected snippets judged relevant / all selected snippets.
 - Index build time and incremental update time.
 - Impact recall against a manually labeled change set.
 
@@ -44,6 +47,8 @@ Measure whether CodeSpace reduces context volume, tool calls, latency, and task 
 ## Claim rules
 
 A claim such as “70% fewer tokens” is valid only for the published benchmark scope. Do not generalize a result from one repository, task, model, or language to the entire product.
+
+The pack-level `baseline_tokens` value is an operational estimate: four characters per byte across the matched cell source and cited evidence files. It is useful for local before/after observability but is **not** a publishable model-token claim. Published results must use the target model's real tokenizer on the exact baseline and Context Pack payloads.
 
 ## Built-in microbenchmark
 

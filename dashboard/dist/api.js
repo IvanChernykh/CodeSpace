@@ -6,16 +6,14 @@ export class ApiError extends Error {
     }
 }
 export class ApiClient {
-    constructor(token, base = "/api/v1") {
-        this.token = token;
+    constructor(base = "/api/v1") {
         this.base = base;
     }
     eventsUrl() {
-        return `${this.base}/events?token=${encodeURIComponent(this.token)}`;
+        return `${this.base}/events`;
     }
     async request(path, init = {}) {
         const headers = new Headers(init.headers);
-        headers.set("Authorization", `Bearer ${this.token}`);
         if (init.body) {
             headers.set("Content-Type", "application/json");
         }

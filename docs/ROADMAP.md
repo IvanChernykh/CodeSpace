@@ -1,88 +1,94 @@
-# Roadmap and Acceptance Criteria
+# CodeSpace breakthrough roadmap
 
-## Release 1.0 — included
+CodeSpace will not win by cloning Git commands or adding more dashboard panels. It must make repositories dramatically cheaper for AI to understand and materially safer for humans to change, while remaining compatible with Git hosting, editors, and CI.
 
-- Incremental local graph index.
-- Multi-language structural extraction.
-- Ranked compact context with secret redaction.
-- Git blast-radius analysis.
-- Decision memory.
-- CLI, MCP, REST, library.
-- JSON, DOT, HTML export.
-- CI, release automation, security documentation, self-test harness.
+## Product scorecard
 
-## Release 1.1 — AST precision
+Every release is gated by five outcomes:
 
-### Critical
+1. **Correctness:** task success with CodeSpace context is non-inferior to full-repository baselines.
+2. **Token efficiency:** median model input falls by at least 60% on the published benchmark corpus.
+3. **Provenance:** every retrieved fact points to a cell or exact file/line range and a stable hash.
+4. **Safety:** secrets, path escapes, prompt-like repository text, and unsafe remote access fail closed.
+5. **Time to useful context:** warm p95 pack compilation stays below 150 ms on a 100k-file monorepo target.
 
-**Tree-sitter adapter**
+## 2.1 — Context Packs and secure desktop foundation
 
-Acceptance criteria:
+Status: vertical slice implemented in this repository.
 
-- Rust, Python, JavaScript, TypeScript, Go, Java, C, and C++ AST tests cover at least 95% of declaration fixtures.
-- Incremental parser updates preserve stable symbol IDs for unchanged declarations.
-- Malformed files do not crash indexing.
-- Parser dependencies and grammar licenses are recorded in SBOM/NOTICE.
+- Versioned Markdown Context Cells with IDs, kinds, statuses, priorities, tags, paths, and symbols.
+- Deterministic hybrid packs combining cells and exact code under a hard token budget.
+- Pack ID, graph revision, cell hashes, source provenance, redaction warnings, and estimated token savings.
+- Explicit evidence/instruction trust boundary for AI consumers.
+- Context Studio UI with knowledge/code split and copyable JSON.
+- `cse desktop` app-window launcher over the secured loopback control plane.
+- CSPRNG sessions that fail closed, HttpOnly cookie auth, Host/Origin validation, CSP, rate/connection limits.
 
-**SQLite/WAL storage**
+Exit criteria:
 
-Acceptance criteria:
+- all Rust/CLI/dashboard/smoke suites pass on Windows, Linux, and macOS;
+- a 50-task benchmark publishes raw token, latency, correctness, and tool-call results;
+- Context Cell parser has fuzz/property coverage for malformed Markdown and Unicode;
+- no auth credential appears in HTML, JS, query strings, screenshots, or process arguments.
 
-- schema migrations are reversible or have a tested forward-only recovery plan;
-- concurrent readers never observe partial updates;
-- crash injection proves index recovery;
-- FTS queries match or exceed current ranking recall.
+## 2.2 — Production knowledge index
 
-## Release 1.2 — semantic resolution
+- SQLite/WAL storage with transactional migrations and FTS5/BM25 hybrid retrieval.
+- Tree-sitter adapters for Rust, Python, TypeScript/JavaScript, Go, Java, C, and C++.
+- Incremental file watching with revision snapshots and cancellation.
+- Cell linter/editor, stale-evidence detection, ownership, review signatures, and schema migration.
+- Pluggable tokenizer accounting for the selected model instead of the conservative 4-char estimate.
+- LSP/IDE extensions that request Context Packs automatically and show provenance inline.
 
-### Critical
+Exit criteria:
 
-**LSP resolver**
+- crash injection never exposes partial index state;
+- unchanged symbols keep stable IDs across incremental AST rebuilds;
+- retrieval recall improves over 2.1 on the labeled corpus without increasing median tokens;
+- database corruption and downgrade paths have tested recovery procedures.
 
-Acceptance criteria:
+## 3.0 — Semantic change system
 
-- process lifecycle, timeout, cancellation, and stderr capture are tested;
-- definition/reference resolution has per-language accuracy reports;
-- untrusted repositories cannot inject arbitrary LSP commands;
-- fallback mode remains fully operational.
+This is the point where CodeSpace becomes more capable than Git for AI-assisted change preparation while still synchronizing through Git.
 
-### Important
+- Content-addressed **Change Intents** containing objective, constraints, Context Pack, proposed symbol edits, tests, impact proof, and approvals.
+- Symbol-aware diff and three-way semantic merge with exact textual fallback.
+- Pre-commit policy engine: required tests, secret/DLP checks, ownership, risk thresholds, and reproducibility proof.
+- Signed context/change manifests and tamper-evident local audit log.
+- Lossless Git import/export, patch generation, branch/PR adapters, and offline bundles.
+- Desktop review flow that explains why each change exists and which context justified it.
 
-- inheritance/implementation edges;
-- test-to-production mapping;
-- rename preview and refactoring plans;
-- symbol-level Git history.
+Exit criteria:
 
-## Release 1.3 — enterprise operation
+- every semantic operation round-trips to a byte-identical Git worktree;
+- merge evaluation reduces unresolved conflicts by at least 30% without increasing silent mismerges;
+- a Change Intent can be reproduced offline from its object graph and verified without trusting the author;
+- destructive operations always present an impact proof and recoverable rollback path.
 
-### Critical
+## 3.1 — Team and enterprise operation
 
-- authenticated HTTPS API via external gateway or dedicated server crate;
-- tenancy and repository isolation;
-- audit events and retention controls;
-- configurable DLP policies;
-- signed releases, provenance, SBOM, vulnerability scanning.
+- Optional encrypted collaboration relay; local/offline remains first-class.
+- Repository/tenant isolation, SSO through an external gateway, audit export, retention, and configurable DLP.
+- Signed releases, SLSA provenance, SBOM, vulnerability scanning, reproducible binaries, and automatic rollback.
+- Shared cell review/ownership and policy packs pinned by content hash.
 
-## Resource estimate
+Remote operation is not enabled by extending the local server. It is a separate threat model, deployment profile, and security review.
 
-| Workstream | Skills | Indicative effort |
-|---|---|---:|
-| Tree-sitter languages | 2 Rust/static-analysis engineers | 8–12 engineer-weeks |
-| LSP resolution | 2 Rust/IDE engineers | 10–16 engineer-weeks |
-| SQLite/FTS/migrations | 1 Rust/data engineer | 4–6 engineer-weeks |
-| Benchmark corpus | 1 evaluation engineer + language reviewers | 6–10 engineer-weeks |
-| Secure remote service | 1 backend + 1 security engineer | 8–12 engineer-weeks |
-| Packaging/release | 1 release engineer | 3–5 engineer-weeks |
+## CI/CD gates
+
+- PR: format, clippy (`correctness` + selected `suspicious`), all tests, dashboard build/contract, smoke test, MSRV, license/deny, and secret scan.
+- Nightly: fuzzing, mutation/property suites, benchmark regression, dependency audit, and cross-platform desktop launch smoke.
+- Release: clean-tree rebuild, SBOM, provenance attestation, signature, checksum, installer smoke, rollback rehearsal, and canary channel.
 
 ## Risk register
 
-| Priority | Risk | Impact | Mitigation |
-|---|---|---|---|
-| Critical | Brand/package collision | Takedown, confusion, install failure | Rename before public launch; trademark and registry clearance |
-| Critical | False semantic edges | Unsafe refactoring advice | Confidence scores, source evidence, AST/LSP adapters, labeled evaluation |
-| Critical | Secret leakage | Credential compromise | Exclusions, redaction, DLP tests, never index credential stores |
-| Critical | Unauthenticated REST exposure | Repository disclosure | Loopback default, explicit remote opt-in, gateway requirement |
-| Important | MCP protocol drift | Client incompatibility | Protocol conformance suite and official SDK adapter |
-| Important | Large monorepo performance | Poor adoption | SQLite/FTS, incremental ASTs, sharding, benchmark gates |
-| Important | License contamination | Legal exposure | Clean-room policy, SBOM, commit-level provenance review |
-| Optional | HTML graph scaling | Browser slowdown | Progressive loading/WebGL exporter |
+| Priority | Risk | Mitigation |
+|---|---|---|
+| Critical | Context Cell prompt injection | Evidence boundary, status/review metadata, safe rendering, adversarial benchmark |
+| Critical | False semantic merge | Exact fallback, confidence threshold, mandatory tests, round-trip proof |
+| Critical | Secret leakage | exclusions, redaction, fail-closed DLP gates, never index credential stores |
+| Critical | Repository corruption | immutable objects, transactional writes, fsync, backups, recovery drills |
+| Important | Misleading token-savings claims | publish corpus, baseline definition, raw trials, model-specific tokenizers |
+| Important | Git ecosystem incompatibility | lossless import/export and Git as transport until parity is proven |
+| Important | Desktop attack surface | loopback isolation, HttpOnly session, strict CSP/origin, signed shell |
+| Important | Large monorepo latency | incremental ASTs, WAL/FTS, sharding, p95 performance gates |

@@ -1,16 +1,11 @@
-use crate::util::json_escape;
-
-pub fn render_dashboard(token: &str) -> String {
-    let safe_token = json_escape(token);
-    format!(
-        r##"<!doctype html>
+pub fn render_dashboard() -> String {
+    r##"<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#0a0a0a">
-  <meta name="cse-session" content="{safe_token}">
   <title>CodeSpace — IDE Assistant</title>
   <link rel="stylesheet" href="/assets/dashboard.css">
 </head>
@@ -195,16 +190,17 @@ pub fn render_dashboard(token: &str) -> String {
           </div>
         </section>
 
-        <section class="view" data-view="context">
-          <div class="panel-page">
-            <div class="panel-intro"><div><span class="eyebrow">Retrieval</span><h2>Context Builder</h2><p>Create a compact source bundle for IDE agents and local models. Results are bounded by token and item limits and pass through secret redaction.</p></div></div>
-            <form id="contextForm" class="surface surface-body form-grid">
-              <div class="field wide"><label for="contextQuery">Question, symbol, or file</label><input id="contextQuery" type="text" placeholder="How does workspace selection affect graph loading?" required></div>
-              <div class="field"><label for="contextTokens">Token budget</label><input id="contextTokens" type="number" min="100" max="32000" value="1600"></div>
-              <div class="field"><label for="contextItems">Maximum items</label><input id="contextItems" type="number" min="1" max="50" value="10"></div>
-              <div class="form-actions"><button class="button primary" type="submit">Build Context</button></div>
+        <section class="view context-studio-view" data-view="context">
+          <div class="panel-page context-studio-page">
+            <div class="context-studio-hero">
+              <div><span class="eyebrow">Neural repository layer</span><h2>Context Studio</h2><p>Compile decisions, constraints, and exact code into a deterministic evidence pack before an AI spends a token.</p></div>
+              <div class="context-trust"><span>Local only</span><span>Secret redaction</span><span>Provenance locked</span></div>
+            </div>
+            <form id="contextForm" class="context-composer">
+              <div class="context-query-field"><label for="contextQuery">What does the agent need to understand?</label><input id="contextQuery" type="text" placeholder="Trace the local authentication boundary and its design constraints" required><small>Searches Markdown Context Cells, symbols, paths, and the repository graph.</small></div>
+              <div class="context-controls"><div class="field"><label for="contextTokens">Budget</label><input id="contextTokens" type="number" min="128" max="32000" value="1600"><small>tokens</small></div><div class="field"><label for="contextItems">Evidence</label><input id="contextItems" type="number" min="1" max="50" value="10"><small>max items</small></div><button class="button primary context-build" type="submit"><span>Compile pack</span><kbd>Enter</kbd></button></div>
             </form>
-            <div id="contextResults" class="results"></div>
+            <div id="contextResults" class="results context-results"><div class="context-empty"><div class="context-flow"><span><b>01</b> Markdown cells</span><i></i><span><b>02</b> Semantic graph</span><i></i><span><b>03</b> AI-ready pack</span></div><strong>Evidence before inference</strong><p>Build a pack to see exactly what an agent receives, where every claim came from, and how many tokens CodeSpace avoided.</p></div></div>
           </div>
         </section>
 
@@ -350,7 +346,7 @@ pub fn render_dashboard(token: &str) -> String {
   <script type="module" src="/assets/main.js"></script>
 </body>
 </html>"##
-    )
+        .to_string()
 }
 
 pub fn asset(path: &str) -> Option<(&'static str, String)> {
@@ -375,11 +371,11 @@ mod tests {
 
     #[test]
     fn dashboard_has_single_runtime_and_core_views() {
-        let html = render_dashboard("test-token");
+        let html = render_dashboard();
         assert!(html.contains("Repository Map"));
         assert!(html.contains("MCP Control"));
         assert!(html.contains("data-view=\"skills\""));
-        assert!(html.contains("meta name=\"cse-session\""));
+        assert!(!html.contains("cse-session"));
         let script_tag = ["<", "script"].concat();
         assert_eq!(html.matches(&script_tag).count(), 1);
         assert!(!html.contains("fetch('/api/v1"));

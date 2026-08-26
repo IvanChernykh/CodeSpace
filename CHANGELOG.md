@@ -1,6 +1,36 @@
 # Changelog
 
-## 2.0.0 — 2026-07-23
+## 2.0.0 — 2026-08-26
+
+### Repository Brain
+
+- Added typed Markdown Context Cells in `CODESPACE.md` for durable principles,
+  constraints, decisions, and design evidence kept next to the code.
+- Added deterministic Context Packs that combine ranked knowledge cells and exact
+  source snippets under one hard token budget.
+- Every pack now exposes its graph revision, stable pack ID, source provenance,
+  content hashes, redaction warnings, and an operational compression estimate.
+- Cell evidence paths and symbols participate in source ranking, keeping the
+  knowledge layer connected to inspectable code.
+
+### Desktop and Context Studio
+
+- Added `cse desktop`, which opens the secure loopback dashboard in an app window
+  where the operating system supports it.
+- Rebuilt Context Studio around query composition, budget visibility, knowledge
+  and source layers, provenance, warnings, and JSON export.
+- Added responsive desktop-grade styling and production dashboard contract tests.
+
+### Security
+
+- Dashboard sessions now use an HttpOnly, SameSite=Strict cookie; credentials are
+  absent from HTML, JavaScript state, query strings, browser arguments, and logs.
+- Secure session generation fails closed if operating-system entropy is
+  unavailable.
+- Added loopback Host and Origin validation, connection limits, authentication
+  rate limiting, strict response headers, and broader secret-redaction coverage.
+
+### Platform foundation
 
 - Transformed from CLI tool into a local IDE assistant platform.
 - **Action Registry**: unified application core for CLI, UI, REST, and MCP.
@@ -15,6 +45,17 @@
 - **Extended Graph Model**: new edge kinds (extends, test-covers, configures, depends-on), precision tiers, evidence.
 - **API Versioning**: `/api/v1/` prefix with unified error envelope.
 - **Settings System**: global, workspace, and session settings with priority chain.
+
+### Upgrade notes and current limits
+
+- Run `cse update --path <repository>` after upgrading to refresh the semantic
+  index and discover Context Cells. Existing Git history is never rewritten.
+- The built-in token and compression metrics use a deterministic four-character
+  operational estimate. Published model-specific claims still require the exact
+  tokenizer and benchmark protocol described in `docs/BENCHMARKS.md`.
+- Content-addressed Change Intents, semantic merge, signatures, and native OS
+  installers remain roadmap work; this release interoperates with Git instead of
+  replacing its object database.
 
 ## 1.0.0 — 2026-07-23
 

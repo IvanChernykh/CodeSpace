@@ -24,17 +24,15 @@ export class ApiError extends Error {
 
 /** Typed client for the CodeSpace local REST API. All calls are same-origin. */
 export class ApiClient {
-  private readonly token: string;
   private readonly base: string;
 
-  constructor(token: string, base = "/api/v1") {
-    this.token = token;
+  constructor(base = "/api/v1") {
     this.base = base;
   }
 
-  /** Build a URL for connecting the native EventSource, which cannot set headers. */
+  /** EventSource automatically sends the same-origin HttpOnly session cookie. */
   eventsUrl(): string {
-    return `${this.base}/events?token=${encodeURIComponent(this.token)}`;
+    return `${this.base}/events`;
   }
 
   private async request<T>(
@@ -42,7 +40,6 @@ export class ApiClient {
     init: RequestInit = {},
   ): Promise<T> {
     const headers = new Headers(init.headers);
-    headers.set("Authorization", `Bearer ${this.token}`);
     if (init.body) {
       headers.set("Content-Type", "application/json");
     }

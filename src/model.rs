@@ -334,14 +334,51 @@ pub struct ContextItem {
     pub redactions: usize,
 }
 
+/// A human-reviewable Markdown knowledge cell selected for an AI context pack.
+///
+/// Cells are deliberately separate from source snippets: agents can distinguish
+/// repository evidence from executable code and never need to guess provenance.
+#[derive(Debug, Clone)]
+pub struct ContextCellItem {
+    pub id: String,
+    pub title: String,
+    pub kind: String,
+    pub status: String,
+    pub priority: u8,
+    pub path: String,
+    pub line_start: usize,
+    pub line_end: usize,
+    pub score_milli: i64,
+    pub tags: Vec<String>,
+    pub evidence_paths: Vec<String>,
+    pub symbols: Vec<String>,
+    pub content: String,
+    pub content_hash: String,
+    pub redactions: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ContextPackMetrics {
+    pub budget_tokens: usize,
+    pub baseline_tokens: usize,
+    pub saved_tokens: usize,
+    pub compression_percent: u8,
+    pub code_items: usize,
+    pub knowledge_cells: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct ContextBundle {
+    pub pack_id: String,
+    pub graph_revision: u64,
     pub query: String,
     pub generated_unix_ms: u128,
     pub estimated_tokens: usize,
     pub source_bytes: usize,
     pub returned_bytes: usize,
     pub items: Vec<ContextItem>,
+    pub cells: Vec<ContextCellItem>,
+    pub metrics: ContextPackMetrics,
     pub warnings: Vec<String>,
 }
 

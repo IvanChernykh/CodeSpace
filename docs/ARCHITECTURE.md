@@ -4,7 +4,7 @@
 
 1. Deterministic, local, bounded execution.
 2. Useful context with explicit confidence rather than fabricated semantic certainty.
-3. One binary and no runtime dependency.
+3. One binary and no database or JavaScript runtime dependency at execution time.
 4. Stable interfaces across CLI, MCP, REST, and library.
 5. Upgrade path to parser/LSP/database adapters without changing the product contract.
 
@@ -21,12 +21,16 @@ Repository traversal
 
 Task query
   -> tokenization
+  -> Markdown Context Cell parsing and validation
+  -> cell scoring by ID/title/tags/paths/symbols/body
+  -> curated evidence-path and symbol boosts
   -> exact/prefix/path/signature scoring
   -> one-hop graph propagation
-  -> source range selection
+  -> knowledge/source range selection
   -> compaction
   -> secret redaction
   -> token budget
+  -> deterministic pack ID + provenance + savings telemetry
   -> CLI/MCP/REST response
 
 Git refs
@@ -56,6 +60,29 @@ The format is intentionally inspectable and deterministic. A production SQLite a
 - Cross-file edges are re-resolved after changes to avoid stale call/import links.
 - Writes are serialized by an exclusive lock and committed by atomic rename on POSIX and a recoverable backup swap on Windows.
 - Search ordering is score-first and stable-ID second, guaranteeing repeatable output.
+- A Context Pack ID hashes the graph revision, query, options, selected cell hashes, and selected source ranges. Wall-clock generation time is excluded.
+- Markdown cells are never persisted as executable instructions. Rendered packs declare an evidence trust boundary, preserve file/line provenance, and flag draft or missing evidence.
+
+## Context Cell protocol
+
+Context Cells are delimited by `<!-- cse:cell ... -->` and `<!-- /cse:cell -->` in indexed Markdown. The parser ignores examples inside fenced code blocks, caps cell size, validates stable IDs, rejects absolute/parent evidence paths, deterministically deduplicates IDs, excludes inactive statuses, and redacts likely secrets before selection.
+
+The pack compiler reserves at most 45% of the configured token budget for cells so source evidence cannot be silently displaced. A selected cell's explicit `paths` and `symbols` act as reviewed retrieval hints and boost exact code candidates. Details and the authoring schema are in [`CONTEXT_CELLS.md`](CONTEXT_CELLS.md).
+
+## Git compatibility and the evolution layer
+
+Git remains the byte-history protocol in the current architecture. CodeSpace is the semantic layer above it:
+
+```text
+Git:       blob -> tree -> commit -> ref
+CodeSpace: cell -> symbol graph -> context pack -> impact proof -> change intent
+```
+
+Future content-addressed change intents and semantic merge must retain lossless Git import/export. "Better than Git" is measured on AI-assisted comprehension, safe change preparation, and conflict explanation—not by breaking the existing ecosystem.
+
+## Desktop boundary
+
+`cse desktop` launches the embedded loopback control plane and opens Edge/Chrome in app-window mode where available, with a system-browser fallback. The session secret is installed only as an HttpOnly cookie and is never placed in browser arguments. A later Tauri shell may replace the launcher while preserving the same HTTP security and API contract.
 
 ## Parser precision
 
