@@ -757,54 +757,6 @@ fn handle_connection(
             }
         }
         ("GET", "/api/v1/dashboard") => serve_dashboard(&mut stream, state),
-        ("POST", "/api/v1/ai/chat") => {
-            let body = extract_body(&request);
-            let query = extract_json_string(&body, "query").unwrap_or_default();
-            if query.trim().is_empty() {
-                return write_json_response(&mut stream, 400, "{\"error\":\"missing query\"}");
-            }
-            let model =
-                extract_json_string(&body, "model").filter(|value| !value.trim().is_empty());
-            let graph = load_graph(root)?;
-            let context = {
-                let ctx = ActionContext {
-                    root: root.as_path().to_path_buf(),
-                    graph,
-                    format: OutputFormat::Markdown,
-                };
-                let mut action_params = ActionParams::default();
-                action_params.positional.push(query.clone());
-                action_params
-                    .flags
-                    .insert("max-tokens".to_string(), "2200".to_string());
-                action_params
-                    .flags
-                    .insert("max-items".to_string(), "12".to_string());
-                registry
-                    .execute("context", &ctx, &action_params)
-                    .map(|result| result.stdout)
-                    .unwrap_or_default()
-            };
-            let mut session = crate::ai::ChatSession::new(model.as_deref());
-            match crate::ai::chat(&mut session, &query, Some(&context)) {
-                Ok(response) => write_json_response(
-                    &mut stream,
-                    200,
-                    &format!(
-                        "{{\"response\":\"{}\"}}",
-                        crate::util::json_escape(&response)
-                    ),
-                ),
-                Err(error) => write_json_response(
-                    &mut stream,
-                    500,
-                    &format!(
-                        "{{\"error\":\"{}\"}}",
-                        crate::util::json_escape(&error.to_string())
-                    ),
-                ),
-            }
-        }
         ("GET", "/api/v1/tasks") => {
             let board = crate::tasks::load_tasks(root);
             write_json_response(&mut stream, 200, &board.to_json())

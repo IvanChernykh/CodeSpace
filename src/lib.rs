@@ -1,6 +1,5 @@
 #![forbid(unsafe_code)]
 
-pub mod ai;
 pub mod application;
 pub mod cli;
 pub mod context;

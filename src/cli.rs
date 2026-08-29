@@ -42,7 +42,6 @@ where
         "settings" => command_settings(&parsed),
         "read" => command_read(&parsed),
         "graph" => command_graph(&parsed),
-        "chat" | "ai" => command_chat(&parsed),
         "task" | "tasks" => command_task(&parsed),
         "github" | "gh" => command_github(&parsed),
         "help" | "--help" | "-h" => {
@@ -677,7 +676,6 @@ fn option_expects_value(key: &str) -> bool {
             | "due"
             | "id"
             | "status"
-            | "model"
             | "token"
             | "username"
             | "owner"
@@ -1002,34 +1000,6 @@ fn command_graph(args: &ParsedArgs) -> Result<i32> {
     Ok(0)
 }
 
-fn command_chat(args: &ParsedArgs) -> Result<i32> {
-    let root = root_from_args(args)?;
-    let model = args.value("model").map(String::as_str);
-
-    if args.flag("models") {
-        let models = crate::ai::list_models()?;
-        if models.is_empty() {
-            println!("No Ollama models found. Run: ollama pull qwen2.5-coder:1.5b-instruct-q4_K_M");
-        } else {
-            println!("Available Ollama models:");
-            for m in &models {
-                println!("  {m}");
-            }
-        }
-        return Ok(0);
-    }
-
-    if let Some(query) = args.value("query") {
-        let mut session = crate::ai::ChatSession::new(model);
-        let context = None;
-        let response = crate::ai::chat(&mut session, query, context)?;
-        println!("{response}");
-        return Ok(0);
-    }
-
-    crate::ai::interactive_chat(&root, model)
-}
-
 fn command_task(args: &ParsedArgs) -> Result<i32> {
     let root = root_from_args(args)?;
     let sub = args
@@ -1251,7 +1221,7 @@ fn command_github(args: &ParsedArgs) -> Result<i32> {
 fn print_help() {
     println!(
         r#"CodeSpace {VERSION}
-Local-first SMART AI development assistant with semantic graph, dashboard, MCP, skills, and local LLM.
+Local-first development assistant with semantic graph, dashboard, MCP, skills, and GitHub integration.
 
 USAGE
   cse <command> [options]
@@ -1266,12 +1236,6 @@ CORE COMMANDS
   cse remember --summary <text> [--file path] [--symbol name] [--rationale text]
   cse read <file> [--max-lines 400]
   cse graph [--format json|summary]
-
-AI CHAT COMMANDS (local LLM via Ollama)
-  cse chat                          Interactive AI chat (RU/EN auto-detect)
-  cse chat --query <text>           One-shot AI query
-  cse chat --models                 List available Ollama models
-  cse chat --model <name>           Use specific model
 
 TASK COMMANDS (project task management with calendar)
   cse task list [--format json]     List all tasks
@@ -1325,7 +1289,6 @@ SECURITY DEFAULTS
   Symlinks are ignored. Files over 1 MiB and common generated/vendor directories are skipped.
   REST binds to loopback; remote binding requires --allow-remote.
   Dashboard server binds to localhost only with session token protection.
-  AI chat uses local Ollama (127.0.0.1:11434) — no data leaves your machine.
 "#
     );
 }
