@@ -112,7 +112,7 @@ jobs:
             tail -100 artifacts/chrome-cdp.log || true
             exit 1
           fi
-          grep -q 'CodeSpace — IDE Assistant' artifacts/dashboard-overview.html
+          grep -q 'CodeSpace — Local Workbench' artifacts/dashboard-overview.html
           grep -q 'Command Center' artifacts/dashboard-overview.html
           grep -q 'data-state="online"' artifacts/dashboard-overview.html
           python3 - <<'PY'

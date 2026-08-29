@@ -3,7 +3,6 @@ type TabId =
   | "graph"
   | "context"
   | "impact"
-  | "assistant"
   | "tasks"
   | "history"
   | "workspaces"
@@ -312,7 +311,6 @@ class ApiClient {
   impact = (from: string, to: string, depth: number): Promise<ImpactReport> => this.request(`/impact${this.query({ from, to, depth })}`);
   history = (query: string, limit = 40): Promise<DecisionRecord[]> => this.request(`/history${this.query({ q: query, limit })}`);
   remember = (payload: JsonObject): Promise<unknown> => this.request(`/remember${this.query(payload as Record<string, string>)}`, { method: "POST" });
-  aiChat = (query: string, model: string): Promise<{ response?: string; error?: string }> => this.request("/ai/chat", { method: "POST", body: JSON.stringify({ query, model }) });
   tasks = (): Promise<{ tasks: TaskRecord[] }> => this.request("/tasks");
   addTask = (payload: JsonObject): Promise<unknown> => this.request("/tasks", { method: "POST", body: JSON.stringify(payload) });
   setTaskStatus = (id: string, status: string): Promise<unknown> => this.request("/tasks/status", { method: "POST", body: JSON.stringify({ id, status }) });
@@ -788,7 +786,7 @@ class CodeSpaceApp {
         return;
       }
       if (typing) return;
-      const shortcuts: Record<string, TabId> = { "1": "overview", "2": "graph", "3": "context", "4": "assistant", "5": "tasks" };
+      const shortcuts: Record<string, TabId> = { "1": "overview", "2": "graph", "3": "context", "4": "tasks", "5": "history" };
       const tab = shortcuts[event.key];
       if (tab) this.switchTab(tab);
     });
@@ -803,7 +801,6 @@ class CodeSpaceApp {
       graph: ["Repository Map", "File-level dependency network"],
       context: ["Context Builder", "Build precise, token-bounded context"],
       impact: ["Impact Analysis", "Trace change propagation before editing"],
-      assistant: ["IDE Assistant", "Local model with repository context"],
       tasks: ["Engineering Tasks", "Repository-native execution board"],
       history: ["Decision Memory", "Search and capture technical decisions"],
       workspaces: ["Repositories", "Manage local working repositories"],
@@ -848,18 +845,12 @@ class CodeSpaceApp {
     $("#graphReloadBtn").addEventListener("click", () => void this.reloadGraph());
     $("#contextForm").addEventListener("submit", (event) => void this.runContext(event));
     $("#impactForm").addEventListener("submit", (event) => void this.runImpact(event));
-    $("#assistantForm").addEventListener("submit", (event) => void this.sendAssistantMessage(event));
     $("#taskForm").addEventListener("submit", (event) => void this.addTask(event));
     $("#historySearchForm").addEventListener("submit", (event) => void this.loadHistory(event));
     $("#rememberForm").addEventListener("submit", (event) => void this.rememberDecision(event));
     $("#workspaceForm").addEventListener("submit", (event) => void this.registerWorkspace(event));
     $("#mcpForm").addEventListener("submit", (event) => void this.registerMcp(event));
     $("#settingForm").addEventListener("submit", (event) => void this.saveSetting(event));
-    $$(".prompt-card").forEach((button) => button.addEventListener("click", () => {
-      const input = $("#assistantInput") as HTMLTextAreaElement;
-      input.value = button.textContent?.trim() ?? "";
-      input.focus();
-    }));
   }
 
   private renderOverview(): void {
@@ -943,12 +934,6 @@ class CodeSpaceApp {
       const label = total === 0 ? "No servers" : `${running}/${total} running`;
       setStatus("#mcpRuntimeStatus", "#mcpHealthText", label, running > 0 ? "success" : "neutral");
     }).catch(() => setStatus("#mcpRuntimeStatus", "#mcpHealthText", "Unavailable", "warning"));
-
-    void this.api.settings().then((response) => {
-      const effective = response.effective;
-      const model = text(effective["ollama_model"] ?? effective["ai.model"] ?? effective["model"]);
-      setStatus("#aiRuntimeStatus", "#aiHealthText", model || "Local Ollama", model ? "success" : "neutral");
-    }).catch(() => setStatus("#aiRuntimeStatus", "#aiHealthText", "Not configured", "warning"));
 
     void this.api.githubStatus().then((status) => {
       const identity = text(status["username"] ?? status["login"] ?? status["user"]);
@@ -1132,29 +1117,6 @@ class CodeSpaceApp {
     } catch (error) {
       root.innerHTML = this.errorCard(this.errorMessage(error));
     }
-  }
-
-  private async sendAssistantMessage(event: Event): Promise<void> {
-    event.preventDefault();
-    const input = $("#assistantInput") as HTMLTextAreaElement;
-    const model = ($("#assistantModel") as HTMLInputElement).value.trim();
-    const query = input.value.trim();
-    if (!query) return;
-    input.value = "";
-    const messages = $("#assistantMessages");
-    messages.insertAdjacentHTML("beforeend", `<div class="chat-message user"><span>You</span><div>${escapeHtml(query)}</div></div><div class="chat-message assistant is-thinking" data-thinking><span>CodeSpace</span><div><i></i><i></i><i></i></div></div>`);
-    messages.scrollTop = messages.scrollHeight;
-    const thinking = $("[data-thinking]", messages);
-    try {
-      const result = await this.api.aiChat(query, model);
-      thinking.classList.remove("is-thinking");
-      thinking.removeAttribute("data-thinking");
-      thinking.innerHTML = `<span>CodeSpace</span><div>${escapeHtml(result.response || result.error || "No response")}</div>`;
-    } catch (error) {
-      thinking.classList.remove("is-thinking");
-      thinking.innerHTML = `<span>CodeSpace</span><div class="chat-error">${escapeHtml(this.errorMessage(error))}</div>`;
-    }
-    messages.scrollTop = messages.scrollHeight;
   }
 
   private async loadTasks(): Promise<void> {

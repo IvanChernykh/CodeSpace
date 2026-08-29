@@ -6,7 +6,7 @@ pub fn render_dashboard() -> String {
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#0a0a0a">
-  <title>CodeSpace — IDE Assistant</title>
+  <title>CodeSpace — Local Workbench</title>
   <link rel="stylesheet" href="/assets/dashboard.css">
 </head>
 <body>
@@ -26,8 +26,7 @@ pub fn render_dashboard() -> String {
           <button class="nav-item" data-nav="history"><span class="nav-icon">◷</span><span>Decision Memory</span></button>
         </div>
         <div class="nav-section">
-          <span class="nav-label">Assistant</span>
-          <button class="nav-item" data-nav="assistant"><span class="nav-icon">✦</span><span>IDE Assistant</span></button>
+          <span class="nav-label">Workspace</span>
           <button class="nav-item" data-nav="tasks"><span class="nav-icon">✓</span><span>Engineering Tasks</span></button>
           <button class="nav-item" data-nav="skills"><span class="nav-icon">◇</span><span>Skills</span></button>
           <button class="nav-item" data-nav="mcp"><span class="nav-icon">⇄</span><span>MCP Control</span></button>
@@ -86,7 +85,7 @@ pub fn render_dashboard() -> String {
                   </div>
                   <div class="repository-document-actions">
                     <button class="button ghost small" type="button" data-quick-tab="workspaces">Switch repository</button>
-                    <button class="button primary small" type="button" data-quick-tab="assistant">Open agent</button>
+                    <button class="button primary small" type="button" data-quick-tab="context">Build context</button>
                   </div>
                 </header>
 
@@ -118,7 +117,6 @@ pub fn render_dashboard() -> String {
                   <p>The repository is indexed. Select a file, build context, or ask the agent to investigate a change.</p>
                 </div>
                 <div class="agent-runtime-list">
-                  <button type="button" data-quick-tab="assistant"><span>AI</span><strong id="aiRuntimeStatus">Local Ollama</strong></button>
                   <button type="button" data-quick-tab="skills"><span>Skills</span><strong id="skillsRuntimeStatus">Built-in registry</strong></button>
                   <button type="button" data-quick-tab="mcp"><span>MCP</span><strong id="mcpRuntimeStatus">No servers</strong></button>
                   <button type="button" data-quick-tab="github"><span>GitHub</span><strong id="githubRuntimeStatus">Optional</strong></button>
@@ -133,8 +131,8 @@ pub fn render_dashboard() -> String {
                 <button type="button" data-quick-tab="context"><span>@</span>Build context</button>
                 <button type="button" data-quick-tab="impact"><span>±</span>Review impact</button>
               </div>
-              <button class="agent-composer" type="button" data-quick-tab="assistant">
-                <span>Ask CodeSpace about this repository</span><kbd>⌘ ↵</kbd>
+              <button class="agent-composer" type="button" data-quick-tab="context">
+                <span>Build context for this repository</span><kbd>⌘ ↵</kbd>
               </button>
             </aside>
 
@@ -149,7 +147,6 @@ pub fn render_dashboard() -> String {
               <div class="bottom-panel-content">
                 <div class="system-output health-list">
                   <div class="health-row" data-tone="warning"><span>semantic-index</span><strong id="indexHealthText">Checking…</strong></div>
-                  <div class="health-row"><span>ai-runtime</span><strong id="aiHealthText">Local Ollama</strong></div>
                   <div class="health-row"><span>skills-registry</span><strong id="skillsHealthText">Built-in registry</strong></div>
                   <div class="health-row"><span>mcp-servers</span><strong id="mcpHealthText">No servers</strong></div>
                   <div class="health-row"><span>github-delivery</span><strong id="githubHealthText">Optional</strong></div>
@@ -193,14 +190,14 @@ pub fn render_dashboard() -> String {
         <section class="view context-studio-view" data-view="context">
           <div class="panel-page context-studio-page">
             <div class="context-studio-hero">
-              <div><span class="eyebrow">Neural repository layer</span><h2>Context Studio</h2><p>Compile decisions, constraints, and exact code into a deterministic evidence pack before an AI spends a token.</p></div>
+              <div><span class="eyebrow">Repository context layer</span><h2>Context Studio</h2><p>Compile decisions, constraints, and exact code into a deterministic evidence pack with token budgeting and provenance.</p></div>
               <div class="context-trust"><span>Local only</span><span>Secret redaction</span><span>Provenance locked</span></div>
             </div>
             <form id="contextForm" class="context-composer">
               <div class="context-query-field"><label for="contextQuery">What does the agent need to understand?</label><input id="contextQuery" type="text" placeholder="Trace the local authentication boundary and its design constraints" required><small>Searches Markdown Context Cells, symbols, paths, and the repository graph.</small></div>
               <div class="context-controls"><div class="field"><label for="contextTokens">Budget</label><input id="contextTokens" type="number" min="128" max="32000" value="1600"><small>tokens</small></div><div class="field"><label for="contextItems">Evidence</label><input id="contextItems" type="number" min="1" max="50" value="10"><small>max items</small></div><button class="button primary context-build" type="submit"><span>Compile pack</span><kbd>Enter</kbd></button></div>
             </form>
-            <div id="contextResults" class="results context-results"><div class="context-empty"><div class="context-flow"><span><b>01</b> Markdown cells</span><i></i><span><b>02</b> Semantic graph</span><i></i><span><b>03</b> AI-ready pack</span></div><strong>Evidence before inference</strong><p>Build a pack to see exactly what an agent receives, where every claim came from, and how many tokens CodeSpace avoided.</p></div></div>
+            <div id="contextResults" class="results context-results"><div class="context-empty"><div class="context-flow"><span><b>01</b> Markdown cells</span><i></i><span><b>02</b> Semantic graph</span><i></i><span><b>03</b> Token-budgeted pack</span></div><strong>Evidence before inference</strong><p>Build a pack to see exactly what context is returned, where every claim came from, and how many tokens were budgeted.</p></div></div>
           </div>
         </section>
 
@@ -214,36 +211,6 @@ pub fn render_dashboard() -> String {
               <div class="form-actions"><button class="button primary" type="submit">Analyze Impact</button></div>
             </form>
             <div id="impactResults" class="results"></div>
-          </div>
-        </section>
-
-        <section class="view assistant-view" data-view="assistant">
-          <div class="assistant-layout">
-            <div class="chat-shell">
-              <div id="assistantMessages" class="chat-messages">
-                <div class="chat-welcome">
-                  <div class="assistant-orb">✦</div>
-                  <h2>Repository-aware local assistant</h2>
-                  <p>Ask about architecture, debugging, refactoring, security, tests, and implementation. The backend supplies indexed repository context to the local model.</p>
-                  <div class="prompt-grid">
-                    <button class="prompt-card" type="button">Explain the current architecture and its weakest boundary.</button>
-                    <button class="prompt-card" type="button">Find likely security risks in the local HTTP server.</button>
-                    <button class="prompt-card" type="button">Plan a safe refactor for the dashboard state layer.</button>
-                    <button class="prompt-card" type="button">Identify missing tests for workspace synchronization.</button>
-                  </div>
-                </div>
-              </div>
-              <form id="assistantForm" class="chat-composer">
-                <div class="composer-box"><textarea id="assistantInput" placeholder="Ask CodeSpace about this repository…" required></textarea><button class="button primary" type="submit">Send</button></div>
-                <div class="composer-footer"><span>Local Ollama endpoint · source stays on this machine</span><input id="assistantModel" value="qwen2.5-coder:1.5b-instruct-q4_K_M" aria-label="Ollama model"></div>
-              </form>
-            </div>
-            <aside class="assistant-context">
-              <span class="eyebrow">Active context</span>
-              <div class="context-card"><span>Repository</span><strong id="assistantRepository">Selected workspace</strong><p>Uses the same active root as CLI and MCP.</p></div>
-              <div class="context-card"><span>Index policy</span><strong>Secret-redacted</strong><p>Generated and vendor directories are excluded.</p></div>
-              <div class="context-card"><span>Model runtime</span><strong>Ollama localhost</strong><p>Configure the model in the composer footer.</p></div>
-            </aside>
           </div>
         </section>
 

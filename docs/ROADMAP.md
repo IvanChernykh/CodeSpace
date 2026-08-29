@@ -1,6 +1,6 @@
 # CodeSpace breakthrough roadmap
 
-CodeSpace will not win by cloning Git commands or adding more dashboard panels. It must make repositories dramatically cheaper for AI to understand and materially safer for humans to change, while remaining compatible with Git hosting, editors, and CI.
+CodeSpace will not win by cloning Git commands or adding more dashboard panels. It must make repositories dramatically cheaper to understand and materially safer for humans to change, while remaining compatible with Git hosting, editors, and CI.
 
 ## Product scorecard
 

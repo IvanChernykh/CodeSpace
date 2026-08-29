@@ -40,7 +40,7 @@ jobs:
               --write-out '%{http_code}' \
               "${SITE_URL}" || true)
             if [ "$status" = "200" ] \
-              && grep -q '<title>CodeSpace — Local-first context engine for AI coding agents</title>' artifacts/pages-index.html \
+              && grep -q '<title>CodeSpace — Local-first context engine for software development</title>' artifacts/pages-index.html \
               && grep -q '12 MCP tools' artifacts/pages-index.html \
               && grep -q 'cse dashboard' artifacts/pages-index.html \
               && grep -q 'Local dashboard' artifacts/pages-index.html; then

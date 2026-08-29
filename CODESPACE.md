@@ -1,7 +1,7 @@
 # CodeSpace repository brain
 
 This file is ordinary, reviewable Markdown. The structured cells inside it are
-retrieved by CodeSpace when they are relevant to an AI task. They travel through
+retrieved by CodeSpace when they are relevant to a development task. They travel through
 Git like documentation, but include stable identity, priority, provenance, and a
 content hash in every generated Context Pack.
 
@@ -12,10 +12,10 @@ kind: principle
 status: accepted
 priority: critical
 always: true
-tags: product, ai, context, token-efficiency
+tags: product, context, token-efficiency
 paths: src/context.rs, src/context_cells.rs, src/model.rs
 -->
-CodeSpace is a local-first repository intelligence layer for humans and AI agents.
+CodeSpace is a local-first repository intelligence layer for humans and development tools.
 Its primary job is to return the smallest trustworthy evidence set that lets an
 agent make a correct change. It complements Git's immutable history with semantic
 context, decisions, impact analysis, and explicit trust boundaries. A feature is
@@ -52,7 +52,7 @@ tags: security, auth, localhost, secrets, desktop
 paths: src/server.rs, src/secret.rs, src/dashboard.rs, dashboard/src/main.ts
 symbols: check_authorization, is_valid_host, is_allowed_origin, redact_secrets
 -->
-The dashboard and AI control plane bind to loopback. Browser authentication uses
+The dashboard and local control plane bind to loopback. Browser authentication uses
 an HttpOnly, SameSite=Strict session cookie; the token must never appear in HTML,
 JavaScript state, query strings, logs, or screenshots. Mutating browser requests
 must pass same-origin checks. Context and file reads redact likely credentials,
@@ -70,7 +70,7 @@ tags: ui, ux, desktop, context, observability
 paths: src/dashboard.rs, dashboard/src/main.ts, dashboard/dist/dashboard.css
 symbols: runContext, ApiClient
 -->
-Context Studio is the product's proof surface. Before sending anything to a model,
+Context Studio is the product's proof surface. Before generating a context pack,
 it shows the pack ID, exact budget usage, token savings, knowledge/code split,
 warnings, review status, evidence links, and hashes. Knowledge and code must look
 visually distinct. Dense IDE ergonomics are preferred over decorative marketing

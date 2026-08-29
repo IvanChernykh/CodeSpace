@@ -78,7 +78,7 @@ Git:       blob -> tree -> commit -> ref
 CodeSpace: cell -> symbol graph -> context pack -> impact proof -> change intent
 ```
 
-Future content-addressed change intents and semantic merge must retain lossless Git import/export. "Better than Git" is measured on AI-assisted comprehension, safe change preparation, and conflict explanation—not by breaking the existing ecosystem.
+Future content-addressed change intents and semantic merge must retain lossless Git import/export. "Better than Git" is measured on comprehension, safe change preparation, and conflict explanation—not by breaking the existing ecosystem.
 
 ## Desktop boundary
 

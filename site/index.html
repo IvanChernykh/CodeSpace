@@ -5,14 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#07111f">
   <meta name="color-scheme" content="dark">
-  <meta name="description" content="CodeSpace is a local-first repository intelligence platform with a semantic graph, compact AI context, impact analysis, MCP, skills, tasks, memory, and a localhost dashboard.">
+  <meta name="description" content="CodeSpace is a local-first repository intelligence platform with a semantic graph, compact context, impact analysis, MCP, skills, tasks, memory, and a localhost dashboard.">
   <meta property="og:type" content="website">
-  <meta property="og:title" content="CodeSpace — Give AI the code that matters">
+  <meta property="og:title" content="CodeSpace — Give tools the code that matters">
   <meta property="og:description" content="Local-first semantic code graph, compact context, impact analysis, and engineering memory in one Rust binary.">
   <meta property="og:url" content="https://ivanchernykh.github.io/CodeSpace/">
   <meta property="og:image" content="https://ivanchernykh.github.io/CodeSpace/assets/og-card.svg">
   <meta name="twitter:card" content="summary_large_image">
-  <title>CodeSpace — Local-first context engine for AI coding agents</title>
+  <title>CodeSpace — Local-first context engine for software development</title>
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="stylesheet" href="styles.css">
@@ -55,8 +55,8 @@
     <section class="hero shell">
       <div class="hero-copy reveal">
         <div class="eyebrow"><span class="status-dot"></span> Open source · Rust · Local first</div>
-        <h1>Give AI the code<br><span>that actually matters.</span></h1>
-        <p class="hero-lede">CodeSpace builds a live semantic graph of your repository and turns it into a complete local control plane: precise AI context, impact analysis, skills, MCP servers, tasks, decisions, and a production-grade localhost dashboard.</p>
+        <h1>Give your tools<br><span>the code that actually matters.</span></h1>
+        <p class="hero-lede">CodeSpace builds a live semantic graph of your repository and turns it into a complete local control plane: precise context, impact analysis, skills, MCP servers, tasks, decisions, and a production-grade localhost dashboard.</p>
         <div class="hero-actions">
           <a class="button button-primary" href="https://github.com/IvanChernykh/CodeSpace">View on GitHub <span aria-hidden="true">↗</span></a>
           <a class="button button-secondary" href="#quickstart">Run locally <span aria-hidden="true">↓</span></a>
@@ -123,7 +123,7 @@
         <article class="feature-card reveal" data-delay="70">
           <div class="feature-number">02</div>
           <div class="feature-icon context-icon" aria-hidden="true">⌁</div>
-          <h3>Compact AI context</h3>
+          <h3>Compact context</h3>
           <p>Lexical and graph ranking select the smallest useful source bundle under an explicit token budget.</p>
           <div class="meter"><span style="--value: 82%"></span></div>
           <small>Measured per repository — never hard-coded</small>
@@ -159,7 +159,7 @@
         <div class="workflow-grid">
           <article class="workflow-step reveal"><span>01</span><div class="workflow-icon">⌘</div><h3>Index</h3><p>Parse structure, hash files, and persist the graph locally.</p><code>cse init</code></article>
           <article class="workflow-step reveal" data-delay="70"><span>02</span><div class="workflow-icon">⌕</div><h3>Retrieve</h3><p>Rank files and symbols against the task and token budget.</p><code>cse context</code></article>
-          <article class="workflow-step reveal" data-delay="140"><span>03</span><div class="workflow-icon">⇄</div><h3>Change</h3><p>Let the agent edit with focused context and prior decisions.</p><code>cse history</code></article>
+          <article class="workflow-step reveal" data-delay="140"><span>03</span><div class="workflow-icon">⇄</div><h3>Change</h3><p>Edit with focused context and prior decisions.</p><code>cse history</code></article>
           <article class="workflow-step reveal" data-delay="210"><span>04</span><div class="workflow-icon">◉</div><h3>Verify</h3><p>Calculate the blast radius before commit or review.</p><code>cse impact</code></article>
         </div>
       </div>
@@ -241,7 +241,7 @@ cse context --query <span class="code-string">"authentication returns 500"</span
 
   <footer class="site-footer">
     <div class="shell footer-grid">
-      <div><a class="brand" href="#top"><svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true"><path d="M20 3 34.7 11.5v17L20 37 5.3 28.5v-17L20 3Z"/><circle cx="20" cy="20" r="4"/><circle cx="11" cy="14" r="2.2"/><circle cx="29" cy="14" r="2.2"/><circle cx="12" cy="28" r="2.2"/><circle cx="28" cy="28" r="2.2"/><path d="m13 15 5 3m9-3-5 3m-8 8 4-4m8 4-4-4"/></svg><span>CodeSpace</span></a><p>Local-first context infrastructure for AI software development.</p></div>
+      <div><a class="brand" href="#top"><svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true"><path d="M20 3 34.7 11.5v17L20 37 5.3 28.5v-17L20 3Z"/><circle cx="20" cy="20" r="4"/><circle cx="11" cy="14" r="2.2"/><circle cx="29" cy="14" r="2.2"/><circle cx="12" cy="28" r="2.2"/><circle cx="28" cy="28" r="2.2"/><path d="m13 15 5 3m9-3-5 3m-8 8 4-4m8 4-4-4"/></svg><span>CodeSpace</span></a><p>Local-first context infrastructure for software development.</p></div>
       <div><strong>Project</strong><a href="https://github.com/IvanChernykh/CodeSpace">Repository</a><a href="https://github.com/IvanChernykh/CodeSpace/releases">Releases</a><a href="https://github.com/IvanChernykh/CodeSpace/blob/main/docs/ROADMAP.md">Roadmap</a></div>
       <div><strong>Resources</strong><a href="https://github.com/IvanChernykh/CodeSpace/blob/main/README.md">Documentation</a><a href="https://github.com/IvanChernykh/CodeSpace/blob/main/SECURITY.md">Security</a><a href="https://github.com/IvanChernykh/CodeSpace/blob/main/CONTRIBUTING.md">Contributing</a></div>
       <div><strong>License</strong><a href="https://github.com/IvanChernykh/CodeSpace/blob/main/LICENSE">Apache-2.0</a><span>© 2026 CodeSpace contributors</span></div>

@@ -62,7 +62,6 @@ class ApiClient {
         this.impact = (from, to, depth) => this.request(`/impact${this.query({ from, to, depth })}`);
         this.history = (query, limit = 40) => this.request(`/history${this.query({ q: query, limit })}`);
         this.remember = (payload) => this.request(`/remember${this.query(payload)}`, { method: "POST" });
-        this.aiChat = (query, model) => this.request("/ai/chat", { method: "POST", body: JSON.stringify({ query, model }) });
         this.tasks = () => this.request("/tasks");
         this.addTask = (payload) => this.request("/tasks", { method: "POST", body: JSON.stringify(payload) });
         this.setTaskStatus = (id, status) => this.request("/tasks/status", { method: "POST", body: JSON.stringify({ id, status }) });
@@ -568,7 +567,7 @@ class CodeSpaceApp {
             }
             if (typing)
                 return;
-            const shortcuts = { "1": "overview", "2": "graph", "3": "context", "4": "assistant", "5": "tasks" };
+            const shortcuts = { "1": "overview", "2": "graph", "3": "context", "4": "tasks", "5": "history" };
             const tab = shortcuts[event.key];
             if (tab)
                 this.switchTab(tab);
@@ -583,7 +582,6 @@ class CodeSpaceApp {
             graph: ["Repository Map", "File-level dependency network"],
             context: ["Context Builder", "Build precise, token-bounded context"],
             impact: ["Impact Analysis", "Trace change propagation before editing"],
-            assistant: ["IDE Assistant", "Local model with repository context"],
             tasks: ["Engineering Tasks", "Repository-native execution board"],
             history: ["Decision Memory", "Search and capture technical decisions"],
             workspaces: ["Repositories", "Manage local working repositories"],
@@ -636,18 +634,12 @@ class CodeSpaceApp {
         $("#graphReloadBtn").addEventListener("click", () => void this.reloadGraph());
         $("#contextForm").addEventListener("submit", (event) => void this.runContext(event));
         $("#impactForm").addEventListener("submit", (event) => void this.runImpact(event));
-        $("#assistantForm").addEventListener("submit", (event) => void this.sendAssistantMessage(event));
         $("#taskForm").addEventListener("submit", (event) => void this.addTask(event));
         $("#historySearchForm").addEventListener("submit", (event) => void this.loadHistory(event));
         $("#rememberForm").addEventListener("submit", (event) => void this.rememberDecision(event));
         $("#workspaceForm").addEventListener("submit", (event) => void this.registerWorkspace(event));
         $("#mcpForm").addEventListener("submit", (event) => void this.registerMcp(event));
         $("#settingForm").addEventListener("submit", (event) => void this.saveSetting(event));
-        $$(".prompt-card").forEach((button) => button.addEventListener("click", () => {
-            const input = $("#assistantInput");
-            input.value = button.textContent?.trim() ?? "";
-            input.focus();
-        }));
     }
     renderOverview() {
         const stats = this.stats;
@@ -730,11 +722,6 @@ class CodeSpaceApp {
             const label = total === 0 ? "No servers" : `${running}/${total} running`;
             setStatus("#mcpRuntimeStatus", "#mcpHealthText", label, running > 0 ? "success" : "neutral");
         }).catch(() => setStatus("#mcpRuntimeStatus", "#mcpHealthText", "Unavailable", "warning"));
-        void this.api.settings().then((response) => {
-            const effective = response.effective;
-            const model = text(effective["ollama_model"] ?? effective["ai.model"] ?? effective["model"]);
-            setStatus("#aiRuntimeStatus", "#aiHealthText", model || "Local Ollama", model ? "success" : "neutral");
-        }).catch(() => setStatus("#aiRuntimeStatus", "#aiHealthText", "Not configured", "warning"));
         void this.api.githubStatus().then((status) => {
             const identity = text(status["username"] ?? status["login"] ?? status["user"]);
             const connected = Boolean(status["connected"] ?? status["authenticated"] ?? identity);
@@ -923,30 +910,6 @@ class CodeSpaceApp {
         catch (error) {
             root.innerHTML = this.errorCard(this.errorMessage(error));
         }
-    }
-    async sendAssistantMessage(event) {
-        event.preventDefault();
-        const input = $("#assistantInput");
-        const model = $("#assistantModel").value.trim();
-        const query = input.value.trim();
-        if (!query)
-            return;
-        input.value = "";
-        const messages = $("#assistantMessages");
-        messages.insertAdjacentHTML("beforeend", `<div class="chat-message user"><span>You</span><div>${escapeHtml(query)}</div></div><div class="chat-message assistant is-thinking" data-thinking><span>CodeSpace</span><div><i></i><i></i><i></i></div></div>`);
-        messages.scrollTop = messages.scrollHeight;
-        const thinking = $("[data-thinking]", messages);
-        try {
-            const result = await this.api.aiChat(query, model);
-            thinking.classList.remove("is-thinking");
-            thinking.removeAttribute("data-thinking");
-            thinking.innerHTML = `<span>CodeSpace</span><div>${escapeHtml(result.response || result.error || "No response")}</div>`;
-        }
-        catch (error) {
-            thinking.classList.remove("is-thinking");
-            thinking.innerHTML = `<span>CodeSpace</span><div class="chat-error">${escapeHtml(this.errorMessage(error))}</div>`;
-        }
-        messages.scrollTop = messages.scrollHeight;
     }
     async loadTasks() {
         const root = $("#taskBoard");

@@ -2,7 +2,7 @@
 
 # CodeSpace 2.0
 
-**A local-first repository brain that compiles trustworthy, token-efficient context for humans and AI.**
+**A local-first repository brain that compiles trustworthy, token-efficient context for humans and tools.**
 
 [![CI](https://github.com/IvanChernykh/CodeSpace/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanChernykh/CodeSpace/actions/workflows/ci.yml)
 [![Pages](https://github.com/IvanChernykh/CodeSpace/actions/workflows/pages.yml/badge.svg)](https://ivanchernykh.github.io/CodeSpace/)
@@ -18,7 +18,7 @@
 
 ## Overview
 
-`cse` is a **small-runtime, local-first** repository intelligence engine written in Rust. It combines reviewable Markdown Context Cells with a semantic code graph, compiles deterministic AI evidence packs, redacts secrets, analyzes Git impact, and exposes the same model through **CLI, MCP, REST, a desktop mode, an embedded dashboard, and a Rust library** — without sending source code to a cloud service.
+`cse` is a **small-runtime, local-first** repository intelligence engine written in Rust. It combines reviewable Markdown Context Cells with a semantic code graph, compiles deterministic evidence packs, redacts secrets, analyzes Git impact, and exposes the same model through **CLI, MCP, REST, a desktop mode, an embedded dashboard, and a Rust library** — without sending source code to a cloud service.
 
 Git remains the compatible history and transport layer. CodeSpace adds what Git does not model: intent, constraints, decisions, symbol relationships, provenance, token budgets, and pre-change blast radius.
 
@@ -30,7 +30,7 @@ CodeSpace 2.0 introduces:
 - **Local Daemon** — session-secured HTTP server with SSE events
 - **Settings System** — layered global/workspace/session configuration
 - **Context Cells** — versioned Markdown knowledge with stable IDs, status, priority, tags, code evidence, and hashes
-- **Context Packs** — deterministic, token-bounded AI input with an explicit trust boundary and savings telemetry
+- **Context Packs** — deterministic, token-bounded context with an explicit trust boundary and savings telemetry
 - **Desktop Mode** — secure loopback app-window launched with one command
 
 > **No source code leaves your machine. No model or embedding provider required. No database runtime needed.**
@@ -43,7 +43,7 @@ CodeSpace 2.0 introduces:
 | **12 Languages** | Rust, Python, JS/TS, Go, Java/Kotlin, C/C++, C#, Swift, PHP, Ruby, shell + structural fallback |
 | **Action Registry** | 12 typed actions with aliases, categories, unified dispatch across CLI/MCP/REST/dashboard |
 | **Context Engine** | Markdown Context Cells + graph ranking, deterministic pack IDs, provenance, token budgeting, savings metrics, secret redaction |
-| **Context Studio** | Inspect the exact knowledge/code split, budget, warnings, evidence paths, hashes, and estimated savings before an AI call |
+| **Context Studio** | Inspect the exact knowledge/code split, budget, warnings, evidence paths, hashes, and estimated savings |
 | **Desktop Mode** | `cse desktop` opens the loopback UI as a standalone app-window with no session token in URLs or JavaScript |
 | **Dashboard** | Embedded desktop-grade UI: Context Studio, graph canvas, symbol inspector, search, workspace selector |
 | **Workspace Manager** | Register multiple repos, switch between them, per-workspace settings |
@@ -160,7 +160,7 @@ The control plane is loopback-only and browser auth uses an HttpOnly cookie.
 <!-- /cse:cell -->
 ```
 
-Cells are treated as repository evidence, never as higher-priority AI instructions. See [`CODESPACE.md`](CODESPACE.md) for the live repository brain and [`docs/CONTEXT_CELLS.md`](docs/CONTEXT_CELLS.md) for the protocol.
+Cells are treated as repository evidence, never as higher-priority instructions. See [`CODESPACE.md`](CODESPACE.md) for the live repository brain and [`docs/CONTEXT_CELLS.md`](docs/CONTEXT_CELLS.md) for the protocol.
 
 ## Workspace Manager
 
