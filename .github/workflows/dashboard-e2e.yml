@@ -1,0 +1,76 @@
+name: Dashboard E2E
+
+on:
+  pull_request:
+    paths:
+      - "src/**"
+      - "dashboard/**"
+      - "scripts/dashboard_smoke.py"
+      - ".github/workflows/dashboard-e2e.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "dashboard/**"
+      - "scripts/dashboard_smoke.py"
+      - ".github/workflows/dashboard-e2e.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dashboard-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Embedded dashboard smoke (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.97.1
+
+      - name: Restore Cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build dashboard assets
+        shell: bash
+        run: |
+          if [[ -f dashboard/package-lock.json ]]; then
+            cd dashboard
+            npm ci --no-audit --no-fund
+            npm run build
+          fi
+
+      - name: Verify generated dashboard assets are committed
+        shell: bash
+        run: git diff --exit-code -- dashboard/dist
+
+      - name: Build CodeSpace
+        run: cargo build --locked
+
+      - name: Run dashboard smoke test (Linux)
+        if: runner.os != 'Windows'
+        run: python3 scripts/dashboard_smoke.py --binary target/debug/cse
+
+      - name: Run dashboard smoke test (Windows)
+        if: runner.os == 'Windows'
+        run: python scripts/dashboard_smoke.py --binary target/debug/cse.exe
+
+      - name: Run Rust tests
+        run: cargo test --locked
