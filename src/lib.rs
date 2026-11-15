@@ -1,11 +1,13 @@
 #![forbid(unsafe_code)]
 
+pub mod agent_runtime;
 pub mod application;
 pub mod cli;
 pub mod context;
 pub mod context_cells;
 pub mod dashboard;
 pub mod events;
+pub mod execution_state;
 pub mod export;
 pub mod github_integration;
 pub mod impact;
@@ -15,7 +17,9 @@ pub mod mcp_manager;
 pub mod memory;
 pub mod model;
 pub mod parser;
+pub mod portal;
 pub mod rest;
+pub mod routing;
 pub mod search;
 pub mod secret;
 pub mod server;

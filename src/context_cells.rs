@@ -1,8 +1,9 @@
-use crate::model::{ContextCellItem, GraphIndex};
+use crate::model::{ContextCellItem, FileRecord, GraphIndex};
 use crate::secret::redact_secrets;
 use crate::util::{estimate_tokens, stable_hash, tokenize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::io::Read;
 use std::path::{Component, Path};
 
 const START_MARKER: &str = "<!-- cse:cell";
@@ -24,13 +25,16 @@ struct ContextCell {
     evidence_paths: Vec<String>,
     symbols: Vec<String>,
     body: String,
+    source_hash: String,
+    source_tokens: usize,
+    source_redactions: usize,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct RankedCell {
     pub item: ContextCellItem,
-    pub estimated_tokens: usize,
     pub source_bytes: usize,
+    pub source_tokens: usize,
 }
 
 pub(crate) fn load_ranked_cells(
@@ -47,8 +51,7 @@ pub(crate) fn load_ranked_cells(
         .values()
         .filter(|file| file.language == "markdown")
     {
-        let absolute = root.join(&file.path);
-        let source = match fs::read_to_string(&absolute) {
+        let source = match read_indexed_source(root, file) {
             Ok(source) => source,
             Err(error) => {
                 warnings.push(format!(
@@ -58,7 +61,22 @@ pub(crate) fn load_ranked_cells(
                 continue;
             }
         };
-        let (mut parsed, mut parse_warnings) = parse_cells(&file.path, &source);
+        // Redact before parsing so titles, tags, symbols, and other metadata
+        // receive the same protection as the body.
+        let redacted_source = if redact {
+            redact_secrets(&source)
+        } else {
+            crate::secret::RedactionResult {
+                content: source.clone(),
+                redactions: 0,
+            }
+        };
+        let (mut parsed, mut parse_warnings) = parse_cells(&file.path, &redacted_source.content);
+        for cell in &mut parsed {
+            cell.source_hash = format!("{:016x}", file.hash);
+            cell.source_tokens = estimate_tokens(&source);
+            cell.source_redactions = redacted_source.redactions;
+        }
         cells.append(&mut parsed);
         warnings.append(&mut parse_warnings);
     }
@@ -89,16 +107,22 @@ pub(crate) fn load_ranked_cells(
         let missing_evidence: Vec<String> = cell
             .evidence_paths
             .iter()
-            .filter(|path| !root.join(path).is_file())
+            .filter(|path| confined_file(root, path).is_err())
             .cloned()
             .collect();
         if !missing_evidence.is_empty() {
             warnings.push(format!(
-                "context cell `{}` references missing evidence: {}",
+                "context cell `{}` references missing or unsafe evidence: {}",
                 cell.id,
                 missing_evidence.join(", ")
             ));
         }
+        let evidence_paths = cell
+            .evidence_paths
+            .iter()
+            .filter(|path| confined_file(root, path).is_ok())
+            .cloned()
+            .collect();
         if cell.status == "draft" {
             warnings.push(format!(
                 "context cell `{}` is draft evidence; verify it before high-risk changes",
@@ -114,10 +138,9 @@ pub(crate) fn load_ranked_cells(
             }
         };
         let content_hash = format!("{:016x}", stable_hash(redacted.content.as_bytes()));
-        let estimated_tokens = estimate_tokens(&redacted.content).saturating_add(40);
         ranked.push(RankedCell {
             source_bytes: redacted.content.len(),
-            estimated_tokens,
+            source_tokens: cell.source_tokens,
             item: ContextCellItem {
                 id: cell.id,
                 title: cell.title,
@@ -129,11 +152,13 @@ pub(crate) fn load_ranked_cells(
                 line_end: cell.line_end,
                 score_milli: score,
                 tags: cell.tags,
-                evidence_paths: cell.evidence_paths,
+                evidence_paths,
                 symbols: cell.symbols,
                 content: redacted.content,
                 content_hash,
-                redactions: redacted.redactions,
+                redactions: cell.source_redactions,
+                source_hash: cell.source_hash,
+                truncated: false,
             },
         });
     }
@@ -159,19 +184,32 @@ fn parse_cells(path: &str, source: &str) -> (Vec<ContextCell>, Vec<String>) {
     while cursor < lines.len() {
         let trimmed = lines[cursor].trim_start();
         if let Some(active) = fence.as_deref() {
-            if trimmed.starts_with(active) {
+            if trimmed
+                .strip_prefix(active)
+                .is_some_and(|rest| rest.trim_matches(['`', '~']).trim().is_empty())
+            {
                 fence = None;
             }
             cursor += 1;
             continue;
         }
         if trimmed.starts_with("```") {
-            fence = Some("```".to_string());
+            fence = Some(
+                trimmed
+                    .chars()
+                    .take_while(|character| *character == '`')
+                    .collect(),
+            );
             cursor += 1;
             continue;
         }
         if trimmed.starts_with("~~~") {
-            fence = Some("~~~".to_string());
+            fence = Some(
+                trimmed
+                    .chars()
+                    .take_while(|character| *character == '~')
+                    .collect(),
+            );
             cursor += 1;
             continue;
         }
@@ -222,7 +260,13 @@ fn parse_cells(path: &str, source: &str) -> (Vec<ContextCell>, Vec<String>) {
             break;
         };
         let body_end = body_start + relative_end;
-        let body = lines[body_start..body_end].join("\n").trim().to_string();
+        let first_body = (body_start..body_end)
+            .find(|index| !lines[*index].trim().is_empty())
+            .unwrap_or(body_start);
+        let last_body = (body_start..body_end)
+            .rfind(|index| !lines[*index].trim().is_empty())
+            .map_or(body_start, |index| index + 1);
+        let body = lines[first_body..last_body].join("\n");
         let metadata = parse_header(&header);
         let id = metadata.get("id").cloned().unwrap_or_default();
         if !valid_id(&id) {
@@ -280,12 +324,15 @@ fn parse_cells(path: &str, source: &str) -> (Vec<ContextCell>, Vec<String>) {
                 .get("always")
                 .is_some_and(|value| matches!(value.as_str(), "true" | "yes" | "1")),
             path: path.to_string(),
-            line_start: body_start + 1,
-            line_end: body_end.max(body_start + 1),
+            line_start: first_body + 1,
+            line_end: last_body.max(first_body + 1),
             tags: csv(metadata.get("tags")),
             evidence_paths,
             symbols: csv(metadata.get("symbols")),
             body,
+            source_hash: String::new(),
+            source_tokens: 0,
+            source_redactions: 0,
         });
         cursor = body_end + 1;
     }
@@ -313,7 +360,7 @@ fn score_cell(cell: &ContextCell, query: &str, query_tokens: &BTreeSet<String>) 
     let evidence = tokenize(&cell.evidence_paths.join(" "));
     let symbols = tokenize(&cell.symbols.join(" "));
     let body = tokenize(&cell.body);
-    let mut score = i64::from(cell.priority) * 2;
+    let mut score = 0;
     score += overlap(query_tokens, &identity) * 180;
     score += overlap(query_tokens, &symbols) * 170;
     score += overlap(query_tokens, &tags) * 130;
@@ -325,11 +372,14 @@ fn score_cell(cell: &ContextCell, query: &str, query_tokens: &BTreeSet<String>) 
     {
         score += 300;
     }
+    // Priority and review state break relevance ties; neither makes an
+    // unrelated cell relevant. An explicit always cell remains a small hint.
+    if score == 0 {
+        return if cell.always { 1 } else { 0 };
+    }
+    score += i64::from(cell.priority);
     if cell.status == "accepted" {
         score += 80;
-    }
-    if cell.always {
-        score += 500;
     }
     score
 }
@@ -362,10 +412,67 @@ fn valid_id(id: &str) -> bool {
 fn safe_relative_path(value: &str) -> bool {
     let path = Path::new(value);
     !value.is_empty()
+        && !value.contains(':')
+        && !value.contains('\\')
         && !path.is_absolute()
         && path
             .components()
             .all(|component| matches!(component, Component::Normal(_) | Component::CurDir))
+}
+
+/// Resolve every read against the active repository, including links changed
+/// since indexing. Never follow a recorded absolute path from a damaged index.
+pub(crate) fn confined_file(
+    root: &Path,
+    relative: &str,
+) -> std::result::Result<std::path::PathBuf, String> {
+    if !safe_relative_path(relative) {
+        return Err("unsafe repository-relative path".to_string());
+    }
+    let canonical_root = fs::canonicalize(root).map_err(|error| error.to_string())?;
+    let canonical =
+        fs::canonicalize(canonical_root.join(relative)).map_err(|error| error.to_string())?;
+    if !canonical.starts_with(&canonical_root) || !canonical.is_file() {
+        return Err("source escapes the active repository or is not a regular file".to_string());
+    }
+    Ok(canonical)
+}
+
+/// Bounded, confined read that verifies indexed coordinates still describe the
+/// bytes being returned. A stale index is evidence to refresh, never a license
+/// to attach old symbol names to new code.
+pub(crate) fn read_indexed_source(
+    root: &Path,
+    file: &FileRecord,
+) -> std::result::Result<String, String> {
+    let canonical = confined_file(root, &file.path)?;
+    let handle = fs::File::open(&canonical).map_err(|error| error.to_string())?;
+    let maximum = crate::util::DEFAULT_MAX_FILE_BYTES;
+    if !handle
+        .metadata()
+        .map_err(|error| error.to_string())?
+        .is_file()
+    {
+        return Err("source is not a regular file".to_string());
+    }
+    let mut bytes = Vec::new();
+    handle
+        .take(maximum + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    if bytes.len() as u64 > maximum {
+        return Err(format!(
+            "source exceeds the {maximum}-byte context read limit"
+        ));
+    }
+    if confined_file(root, &file.path)? != canonical {
+        return Err("source path changed during retrieval; refresh the index".to_string());
+    }
+    let source = String::from_utf8_lossy(&bytes).into_owned();
+    if stable_hash(source.as_bytes()) != file.hash {
+        return Err("source changed since indexing; run cse index before retrieval".to_string());
+    }
+    Ok(source)
 }
 
 fn parse_priority(value: Option<&str>) -> u8 {

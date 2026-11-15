@@ -6,3 +6,11 @@ artifacts/
 .DS_Store
 __pycache__/
 *.pyc
+node_modules/
+integrations/chatgpt/dist/
+plugins/codespace/server/server.mjs
+plugins/codespace/server/widget.html
+plugins/codespace/server/licenses.json
+*.local.json
+.env
+.env.*

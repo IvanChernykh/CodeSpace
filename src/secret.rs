@@ -20,6 +20,8 @@ pub fn redact_secrets(input: &str) -> RedactionResult {
             if line.contains("-----END ") && line.contains("PRIVATE KEY-----") {
                 in_private_key = false;
             }
+            // Source ranges remain valid after redacting a multi-line block.
+            output.push('\n');
             continue;
         }
         let (redacted, count) = redact_line(line);
@@ -39,14 +41,28 @@ pub fn redact_secrets(input: &str) -> RedactionResult {
 fn redact_line(line: &str) -> (String, usize) {
     let mut output = line.to_string();
     let mut count = 0;
-    for prefix in ["sk-", "sk-proj-", "ghp_", "github_pat_", "AKIA", "ASIA"] {
-        while let Some(start) = find_token_prefix(&output, prefix) {
+    for prefix in [
+        "sk-",
+        "sk-proj-",
+        "ghp_",
+        "github_pat_",
+        "AKIA",
+        "ASIA",
+        "glpat-",
+        "xoxb-",
+        "xoxp-",
+    ] {
+        let mut cursor = 0;
+        while let Some(offset) = output[cursor..].find(prefix) {
+            let start = cursor + offset;
             let end = token_end(&output, start);
             if end.saturating_sub(start) < prefix.len() + 8 {
-                break;
+                cursor = end;
+                continue;
             }
             output.replace_range(start..end, "[REDACTED_SECRET]");
             count += 1;
+            cursor = start + "[REDACTED_SECRET]".len();
         }
     }
 
@@ -60,6 +76,7 @@ fn redact_line(line: &str) -> (String, usize) {
         "auth_token",
         "password",
         "passwd",
+        "authorization",
     ] {
         if let Some(position) = lower.find(marker) {
             if let Some(separator_offset) = output[position..].find(['=', ':']) {
@@ -74,10 +91,6 @@ fn redact_line(line: &str) -> (String, usize) {
         }
     }
     (output, count)
-}
-
-fn find_token_prefix(value: &str, prefix: &str) -> Option<usize> {
-    value.find(prefix)
 }
 
 fn token_end(value: &str, start: usize) -> usize {

@@ -1,0 +1,5 @@
+{
+  "mcpServers": {
+    "codespace": {"type":"stdio","command":"node","args":["${PLUGIN_ROOT}/server/launch.mjs"],"cwd":"${PLUGIN_ROOT}"}
+  }
+}

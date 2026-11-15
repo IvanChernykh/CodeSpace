@@ -50,6 +50,9 @@ jobs:
           ref: ${{ needs.prepare.outputs.tag }}
       - name: Install pinned Rust toolchain
         run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
       - name: Release gates
         run: |
           cargo +1.97.1 fmt --all -- --check
@@ -59,6 +62,26 @@ jobs:
           python3 scripts/validate_site.py
           python3 scripts/self_test.py
           cargo +1.97.1 package --allow-dirty --locked
+      - name: Build core for plugin end-to-end tests
+        run: cargo +1.97.1 build --locked
+      - name: Verify and package plugin
+        working-directory: integrations/chatgpt
+        env:
+          CSE_BINARY: ${{ github.workspace }}/target/debug/cse
+        run: |
+          npm ci
+          npm run build
+          npx playwright install --with-deps chromium
+          npm test
+          python3 ../../scripts/package_plugin.py
+          cd ../../artifacts
+          sha256sum codespace-plugin-3.0.0.zip > codespace-plugin-3.0.0.zip.sha256
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-plugin
+          path: |
+            artifacts/codespace-plugin-3.0.0.zip
+            artifacts/codespace-plugin-3.0.0.zip.sha256
 
   build:
     needs: [prepare, verify]

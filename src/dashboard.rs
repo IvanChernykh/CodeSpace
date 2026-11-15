@@ -142,7 +142,7 @@ pub fn render_dashboard() -> String {
                 <button type="button">Languages</button>
                 <button type="button">Interfaces</button>
                 <span class="bottom-panel-spacer"></span>
-                <code>localhost · v<span id="runtimeVersionMirror">2.0.0</span></code>
+                <code>localhost · v<span id="runtimeVersionMirror">3.0.0</span></code>
               </div>
               <div class="bottom-panel-content">
                 <div class="system-output health-list">
@@ -190,20 +190,42 @@ pub fn render_dashboard() -> String {
         <section class="view context-studio-view" data-view="context">
           <div class="panel-page context-studio-page">
             <div class="context-studio-hero">
-              <div><span class="eyebrow">Repository context layer</span><h2>Context Studio</h2><p>Compile decisions, constraints, and exact code into a deterministic evidence pack with token budgeting and provenance.</p></div>
-              <div class="context-trust"><span>Local only</span><span>Secret redaction</span><span>Provenance locked</span></div>
+              <div><h2>Context Studio</h2><p>Compile decisions, constraints, and exact code into a deterministic evidence pack with token budgeting and provenance.</p></div>
+
             </div>
             <form id="contextForm" class="context-composer">
               <div class="context-query-field"><label for="contextQuery">What does the agent need to understand?</label><input id="contextQuery" type="text" placeholder="Trace the local authentication boundary and its design constraints" required><small>Searches Markdown Context Cells, symbols, paths, and the repository graph.</small></div>
               <div class="context-controls"><div class="field"><label for="contextTokens">Budget</label><input id="contextTokens" type="number" min="128" max="32000" value="1600"><small>tokens</small></div><div class="field"><label for="contextItems">Evidence</label><input id="contextItems" type="number" min="1" max="50" value="10"><small>max items</small></div><button class="button primary context-build" type="submit"><span>Compile pack</span><kbd>Enter</kbd></button></div>
             </form>
-            <div id="contextResults" class="results context-results"><div class="context-empty"><div class="context-flow"><span><b>01</b> Markdown cells</span><i></i><span><b>02</b> Semantic graph</span><i></i><span><b>03</b> Token-budgeted pack</span></div><strong>Evidence before inference</strong><p>Build a pack to see exactly what context is returned, where every claim came from, and how many tokens were budgeted.</p></div></div>
+            <div id="contextResults" class="results context-results"><div class="context-empty"><strong>Evidence before inference</strong><p>Build a pack to see its sources and full Markdown size. Token counts are estimates, not model billing.</p></div></div>
+            <div class="runtime-workbench">
+              <section class="runtime-panel" aria-labelledby="bulkReadTitle">
+                <header><h3 id="bulkReadTitle">Find evidence across files</h3><p>Bring back relevant lines with exact locations. Large reads stay outside the agent's context.</p></header>
+                <form id="bulkReadForm" class="runtime-form">
+                  <label for="bulkQuestion">Question</label><input id="bulkQuestion" required placeholder="Where are requests authenticated?">
+                  <label for="bulkPaths">Files · one repository path per line</label><textarea id="bulkPaths" rows="3" required placeholder="src/server.rs&#10;src/mcp.rs"></textarea>
+                  <div class="runtime-inline"><div><label for="bulkBudget">Estimated token limit</label><input id="bulkBudget" type="number" min="256" max="32000" value="1400"></div><div><label for="bulkKind">Task</label><select id="bulkKind"><option value="inspect">Inspect</option><option value="overview">Overview</option><option value="debug">Debug</option><option value="security">Security</option><option value="architecture">Architecture</option></select></div></div>
+                  <button class="button primary" type="submit">Read selected files</button>
+                </form>
+                <div id="bulkReadResults" class="runtime-result" aria-live="polite"><p class="runtime-note">Runs locally. Debugging and security decisions stay with the reviewing agent.</p></div>
+              </section>
+              <section class="runtime-panel" aria-labelledby="runStateTitle">
+                <header><h3 id="runStateTitle">Resume with current facts</h3><p>Keep the objective, constraints and next action in a bounded checkpoint. Resume without replaying every step.</p></header>
+                <form id="runStartForm" class="runtime-form">
+                  <label for="runId">Run ID</label><input id="runId" required pattern="[A-Za-z0-9_-]+" maxlength="64" placeholder="auth-review">
+                  <label for="runObjective">Objective</label><textarea id="runObjective" rows="3" required placeholder="Verify authentication and preserve existing behavior"></textarea>
+                  <div class="runtime-inline"><button class="button primary" type="submit">Start run</button><button id="refreshRunsBtn" class="button ghost" type="button">Refresh runs</button></div>
+                </form>
+                <div id="runList" class="runtime-run-list" aria-live="polite"><p class="runtime-note">Open Context Studio to load saved runs.</p></div>
+                <div id="runDetail" class="runtime-result" aria-live="polite"></div>
+              </section>
+            </div>
           </div>
         </section>
 
         <section class="view" data-view="impact">
           <div class="panel-page">
-            <div class="panel-intro"><div><span class="eyebrow">Change intelligence</span><h2>Impact Analysis</h2><p>Compare Git revisions and trace potentially affected symbols through the repository graph before making or merging a change.</p></div></div>
+            <div class="panel-intro"><div><h2>Impact Analysis</h2><p>Compare Git revisions and trace potentially affected symbols through the repository graph before making or merging a change.</p></div></div>
             <form id="impactForm" class="surface surface-body form-grid">
               <div class="field"><label for="impactFrom">From revision</label><input id="impactFrom" value="HEAD~1"></div>
               <div class="field"><label for="impactTo">To revision</label><input id="impactTo" value="HEAD"></div>
@@ -216,7 +238,7 @@ pub fn render_dashboard() -> String {
 
         <section class="view" data-view="tasks">
           <div class="panel-page">
-            <div class="panel-intro"><div><span class="eyebrow">Execution</span><h2>Engineering Tasks</h2><p>Track work next to repository state. Task mutations are available through the same local API used by the CLI and dashboard.</p></div></div>
+            <div class="panel-intro"><div><h2>Engineering Tasks</h2><p>Track work next to repository state. Task mutations are available through the same local API used by the CLI and dashboard.</p></div></div>
             <form id="taskForm" class="surface surface-body form-grid task-controls">
               <div class="field"><label>Title</label><input name="title" placeholder="Fix workspace root resolution" required></div>
               <div class="field wide"><label>Description</label><input name="description" placeholder="Expected behavior and acceptance criteria"></div>
@@ -230,7 +252,7 @@ pub fn render_dashboard() -> String {
 
         <section class="view" data-view="history">
           <div class="panel-page">
-            <div class="panel-intro"><div><span class="eyebrow">Durable project memory</span><h2>Decision Memory</h2><p>Record why architecture and implementation choices were made, then retrieve them through CLI, MCP, and the dashboard.</p></div></div>
+            <div class="panel-intro"><div><h2>Decision Memory</h2><p>Record why architecture and implementation choices were made, then retrieve them through CLI, MCP, and the dashboard.</p></div></div>
             <div class="decision-layout">
               <div>
                 <form id="historySearchForm" class="surface surface-body form-grid"><div class="field wide"><label>Search decisions</label><input id="historyQuery" placeholder="workspace, security, dashboard…"></div><div class="form-actions"><button class="button ghost" type="submit">Search</button></div></form>
@@ -250,7 +272,7 @@ pub fn render_dashboard() -> String {
 
         <section class="view" data-view="workspaces">
           <div class="panel-page">
-            <div class="panel-intro"><div><span class="eyebrow">Workspace manager</span><h2>Repositories</h2><p>Register and switch local repositories. Every dashboard API request resolves the active workspace before executing a core action.</p></div></div>
+            <div class="panel-intro"><div><h2>Repositories</h2><p>Register and switch local repositories. Every dashboard API request resolves the active workspace before executing a core action.</p></div></div>
             <div id="workspaceList" class="workspace-list"></div>
             <form id="workspaceForm" class="surface surface-body form-grid" style="margin-top:14px">
               <div class="field wide"><label>Local directory path</label><input name="path" placeholder="/home/user/projects/service" required></div>
@@ -262,14 +284,14 @@ pub fn render_dashboard() -> String {
 
         <section class="view" data-view="skills">
           <div class="panel-page">
-            <div class="panel-intro"><div><span class="eyebrow">Capability platform</span><h2>Skills</h2><p>Enable trusted, permission-scoped capabilities for security, design, engineering, testing, documentation, and repository analysis.</p></div><div class="status-pill">Pinned sources only</div></div>
+            <div class="panel-intro"><div><h2>Skills</h2><p>Enable trusted, permission-scoped capabilities for security, design, engineering, testing, documentation, and repository analysis.</p></div><div class="status-pill">Pinned sources only</div></div>
             <div id="skillsGrid" class="skills-grid"></div>
           </div>
         </section>
 
         <section class="view" data-view="mcp">
           <div class="panel-page">
-            <div class="panel-intro"><div><span class="eyebrow">Protocol control plane</span><h2>MCP Control</h2><p>Register, start, stop, and inspect local MCP server processes. Environment values remain server-side and are never returned to the browser.</p></div></div>
+            <div class="panel-intro"><div><h2>MCP Control</h2><p>Register, start, stop, and inspect local MCP server processes. Environment values remain server-side and are never returned to the browser.</p></div></div>
             <div id="mcpList" class="mcp-list"></div>
             <form id="mcpForm" class="surface surface-body form-grid" style="margin-top:14px">
               <div class="field"><label>Name</label><input name="name" placeholder="filesystem-tools" required></div>
@@ -283,7 +305,7 @@ pub fn render_dashboard() -> String {
 
         <section class="view" data-view="settings">
           <div class="panel-page">
-            <div class="panel-intro"><div><span class="eyebrow">Configuration</span><h2>Settings</h2><p>Workspace settings override global settings. All changes are persisted by the backend and broadcast as synchronization events.</p></div></div>
+            <div class="panel-intro"><div><h2>Settings</h2><p>Workspace settings override global settings. All changes are persisted by the backend and broadcast as synchronization events.</p></div></div>
             <div class="settings-layout">
               <div id="settingsTable" class="surface surface-body"></div>
               <form id="settingForm" class="surface surface-body form-grid">
@@ -298,7 +320,7 @@ pub fn render_dashboard() -> String {
 
         <section class="view" data-view="github">
           <div class="panel-page">
-            <div class="panel-intro"><div><span class="eyebrow">Delivery integration</span><h2>GitHub</h2><p>Inspect the local GitHub connection without exposing credentials to page JavaScript.</p></div></div>
+            <div class="panel-intro"><div><h2>GitHub</h2><p>Inspect the local GitHub connection without exposing credentials to page JavaScript.</p></div></div>
             <div id="githubPanel"></div>
           </div>
         </section>

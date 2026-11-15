@@ -324,6 +324,7 @@ class ApiClient {
   setSetting = (key: string, value: string, scope: string): Promise<unknown> => this.request("/settings", { method: "POST", body: JSON.stringify({ key, value, scope }) });
   githubStatus = (): Promise<JsonObject> => this.request("/github/status");
   eventsUrl = (): string => "/api/v1/events";
+  runtime = <T = JsonObject>(operation: string, input: JsonObject = {}): Promise<T> => this.request("/runtime", { method: "POST", body: JSON.stringify({ operation, input }) });
 }
 
 class Toasts {
@@ -819,6 +820,7 @@ class CodeSpaceApp {
     if (tab === "mcp") void this.loadMcp();
     if (tab === "settings") void this.loadSettings();
     if (tab === "github") void this.loadGithub();
+    if (tab === "context") void this.loadRuns();
     if (tab === "graph") window.setTimeout(() => this.graphView.fit(), 30);
   }
 
@@ -844,6 +846,9 @@ class CodeSpaceApp {
     $("#graphFitBtn").addEventListener("click", () => this.graphView.fit());
     $("#graphReloadBtn").addEventListener("click", () => void this.reloadGraph());
     $("#contextForm").addEventListener("submit", (event) => void this.runContext(event));
+    $("#bulkReadForm").addEventListener("submit", (event) => void this.runBulkRead(event));
+    $("#runStartForm").addEventListener("submit", (event) => void this.startRun(event));
+    $("#refreshRunsBtn").addEventListener("click", () => void this.loadRuns());
     $("#impactForm").addEventListener("submit", (event) => void this.runImpact(event));
     $("#taskForm").addEventListener("submit", (event) => void this.addTask(event));
     $("#historySearchForm").addEventListener("submit", (event) => void this.loadHistory(event));
@@ -1089,11 +1094,12 @@ class CodeSpaceApp {
       const evidence = cells || code
         ? `<div class="context-columns"><section><div class="context-section-heading"><div><span>Knowledge layer</span><strong>Neuro-context cells</strong></div><b>${bundle.cells.length}</b></div>${cells || `<div class="empty-inline">No matching cells in indexed Markdown.</div>`}</section><section><div class="context-section-heading"><div><span>Source layer</span><strong>Exact code evidence</strong></div><b>${bundle.items.length}</b></div>${code || `<div class="empty-inline">No matching code symbols.</div>`}</section></div>`
         : `<div class="empty-state"><strong>No context matched</strong><span>Try a decision, constraint, symbol, file path, or architectural term.</span></div>`;
-      root.innerHTML = `<section class="context-pack-head"><div class="pack-identity"><span>Context Pack · graph r${bundle.graph_revision}</span><strong>${escapeHtml(bundle.pack_id)}</strong><button class="button subtle small" type="button" data-copy-context>Copy JSON</button></div><div class="token-meter"><div><span>Token budget</span><strong>${bundle.estimated_tokens.toLocaleString()} / ${bundle.metrics.budget_tokens.toLocaleString()}</strong></div><progress max="100" value="${usedPercent}">${usedPercent}%</progress></div><div class="pack-metrics"><div><span>Tokens avoided</span><strong>${bundle.metrics.saved_tokens.toLocaleString()}</strong><small>${bundle.metrics.compression_percent}% less context</small></div><div><span>Knowledge</span><strong>${bundle.metrics.knowledge_cells}</strong><small>reviewable cells</small></div><div><span>Code</span><strong>${bundle.metrics.code_items}</strong><small>exact snippets</small></div><div><span>Provenance</span><strong>${formatBytes(bundle.source_bytes)}</strong><small>${formatBytes(bundle.returned_bytes)} returned</small></div></div></section>${bundle.warnings.map((warning) => `<div class="callout warning">${escapeHtml(warning)}</div>`).join("")}${evidence}`;
+      root.innerHTML = `<section class="context-pack-head"><div class="pack-identity"><span>Context Pack · graph r${bundle.graph_revision}</span><strong>${escapeHtml(bundle.pack_id)}</strong><button class="button subtle small" type="button" data-copy-context>Copy prompt</button></div><div class="token-meter"><div><span>Estimated Markdown tokens</span><strong>${bundle.estimated_tokens.toLocaleString()} / ${bundle.metrics.budget_tokens.toLocaleString()}</strong></div><progress max="100" value="${usedPercent}">${usedPercent}%</progress></div><div class="pack-metrics"><div><span>Source reduction estimate</span><strong>${bundle.metrics.saved_tokens.toLocaleString()}</strong><small>${bundle.metrics.compression_percent}% vs selected source files</small></div><div><span>Knowledge</span><strong>${bundle.metrics.knowledge_cells}</strong><small>reviewable cells</small></div><div><span>Code</span><strong>${bundle.metrics.code_items}</strong><small>exact snippets</small></div><div><span>Provenance</span><strong>${formatBytes(bundle.source_bytes)}</strong><small>${formatBytes(bundle.returned_bytes)} returned</small></div></div></section>${bundle.warnings.map((warning) => `<div class="callout warning">${escapeHtml(warning)}</div>`).join("")}${evidence}`;
       root.querySelector<HTMLButtonElement>("[data-copy-context]")?.addEventListener("click", async () => {
         try {
-          await navigator.clipboard.writeText(JSON.stringify(bundle, null, 2));
-          this.toasts.success(`Copied ${bundle.pack_id}`);
+          const result = await this.api.runtime<{prompt: string; pack_id: string}>("context-prompt", {query, max_tokens: maxTokens, max_items: maxItems});
+          await navigator.clipboard.writeText(result.prompt);
+          this.toasts.success(`Copied bounded Markdown prompt`);
         } catch {
           this.toasts.error("Clipboard access is unavailable");
         }
@@ -1101,6 +1107,77 @@ class CodeSpaceApp {
     } catch (error) {
       root.innerHTML = this.errorCard(this.errorMessage(error));
     }
+  }
+
+  private async runBulkRead(event: Event): Promise<void> {
+    event.preventDefault();
+    const form = $("#bulkReadForm") as HTMLFormElement;
+    const button = form.querySelector("button")!;
+    const root = $("#bulkReadResults");
+    button.disabled = true;
+    root.innerHTML = this.loadingCard("Selecting local evidence");
+    try {
+      const result = await this.api.runtime<{
+        route: string; reason: string; warnings: string[];
+        metrics: { coordinator_result_tokens_estimate: number; source_tokens_estimate: number; reduction_percent_estimate: number };
+        snippets: {path: string; line_start: number; line_end: number; content: string}[];
+      }>("bulk-read", {
+        question: ($("#bulkQuestion") as HTMLInputElement).value,
+        paths: ($("#bulkPaths") as HTMLTextAreaElement).value.split(/\r?\n/).map((path) => path.trim()).filter(Boolean),
+        max_tokens: Number(($("#bulkBudget") as HTMLInputElement).value),
+        task_kind: ($("#bulkKind") as HTMLSelectElement).value,
+      });
+      root.innerHTML = `<div class="runtime-summary"><span class="badge">${escapeHtml(result.route)}</span><strong>${result.metrics.coordinator_result_tokens_estimate.toLocaleString()} estimated tokens returned</strong></div><p class="runtime-note">${escapeHtml(result.reason)} · Source estimate: ${result.metrics.source_tokens_estimate.toLocaleString()} tokens. No model billing measured.</p>${result.warnings.map((warning) => `<div class="callout warning">${escapeHtml(warning)}</div>`).join("")}${result.snippets.map((snippet) => `<article class="code-result"><header><code>${escapeHtml(snippet.path)}:${snippet.line_start}–${snippet.line_end}</code></header><pre>${escapeHtml(snippet.content)}</pre></article>`).join("") || `<p class="runtime-note">No matching lines. Refine the question or read a targeted range.</p>`}`;
+    } catch (error) { root.innerHTML = this.errorCard(this.errorMessage(error)); }
+    finally { button.disabled = false; }
+  }
+
+  private async startRun(event: Event): Promise<void> {
+    event.preventDefault();
+    const button = ($("#runStartForm") as HTMLFormElement).querySelector("button")!;
+    button.disabled = true;
+    try {
+      const id = ($("#runId") as HTMLInputElement).value.trim();
+      await this.api.runtime("run-start", {id, initial: {objective: ($("#runObjective") as HTMLTextAreaElement).value}});
+      await this.loadRuns();
+      await this.showRun(id);
+      this.toasts.success("Execution checkpoint created");
+    } catch (error) { this.toasts.error(this.errorMessage(error)); }
+    finally { button.disabled = false; }
+  }
+
+  private async loadRuns(): Promise<void> {
+    const root = $("#runList");
+    try {
+      const result = await this.api.runtime<{runs: {id: string; revision: number; status: string; objective: string}[]}>("run-list");
+      root.innerHTML = result.runs.length ? result.runs.map((run) => `<button class="runtime-run" type="button" data-run-id="${escapeHtml(run.id)}"><span><strong>${escapeHtml(run.id)}</strong><small>${escapeHtml(run.objective)}</small></span><span class="badge">${escapeHtml(run.status)} · r${run.revision}</span></button>`).join("") : `<p class="runtime-note">No saved runs yet. Start a run to keep work recoverable.</p>`;
+      root.querySelectorAll<HTMLButtonElement>("[data-run-id]").forEach((button) => button.addEventListener("click", () => void this.showRun(button.dataset.runId!)));
+    } catch (error) { root.innerHTML = this.errorCard(this.errorMessage(error)); }
+  }
+
+  private async showRun(id: string): Promise<void> {
+    const root = $("#runDetail");
+    try {
+      const run = await this.api.runtime<{id: string; revision: number; state: {objective: string; status: string; phase?: string; latest_observation?: string; next_action?: string; facts?: string[]; completed?: string[]}}>("run-show", {id});
+      const terminal = ["completed", "cancelled"].includes(run.state.status);
+      root.innerHTML = `<div class="runtime-summary"><strong>${escapeHtml(run.id)} · revision ${run.revision}</strong><button type="button" class="button ghost small" data-copy-run>Copy resume context</button></div><p>${escapeHtml(run.state.objective)}</p><form class="runtime-form" data-patch-run><label>Current observation<textarea name="latest_observation" rows="3" maxlength="4096">${escapeHtml(run.state.latest_observation ?? "")}</textarea></label><label>Next action<input name="next_action" maxlength="2048" value="${escapeHtml(run.state.next_action ?? "")}"></label><label>Status<select name="status">${["active", "blocked", "paused", "completed", "cancelled"].map((status) => `<option${run.state.status === status ? " selected" : ""}>${status}</option>`).join("")}</select></label><button class="button primary" type="submit"${terminal ? " disabled" : ""}>${terminal ? "Run is complete" : "Save checkpoint"}</button><small class="runtime-note">Updates use revision ${run.revision}. Conflicting edits are rejected. State is limited to 16 KiB.</small></form><details><summary>Saved facts and outcomes</summary><pre>${escapeHtml(JSON.stringify({facts: run.state.facts, completed: run.state.completed}, null, 2))}</pre></details>`;
+      root.querySelector<HTMLButtonElement>("[data-copy-run]")?.addEventListener("click", async () => {
+        try { const result = await this.api.runtime<{prompt: string}>("run-resume", {id}); await navigator.clipboard.writeText(result.prompt); this.toasts.success("Current execution state copied"); }
+        catch (error) { this.toasts.error(this.errorMessage(error)); }
+      });
+      root.querySelector<HTMLFormElement>("[data-patch-run]")?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const form = event.currentTarget as HTMLFormElement;
+        const button = form.querySelector("button")!;
+        button.disabled = true;
+        try {
+          const data = new FormData(form);
+          await this.api.runtime("run-patch", {id, expected_revision: run.revision, patch: {latest_observation: text(data.get("latest_observation")), next_action: text(data.get("next_action")), status: text(data.get("status"))}});
+          await this.loadRuns(); await this.showRun(id);
+          this.toasts.success("Checkpoint saved");
+        } catch (error) { this.toasts.error(this.errorMessage(error)); button.disabled = false; }
+      });
+    } catch (error) { root.innerHTML = this.errorCard(this.errorMessage(error)); }
   }
 
   private async runImpact(event: Event): Promise<void> {
@@ -1259,7 +1336,7 @@ class CodeSpaceApp {
     root.innerHTML = this.loadingCard("Loading skills");
     try {
       const response = await this.api.skills();
-      root.innerHTML = response.skills.map((skill) => `<article class="skill-card ${skill.enabled ? "is-enabled" : ""}"><header><div class="skill-icon">${this.skillIcon(skill.tags)}</div><label class="switch"><input type="checkbox" data-skill-id="${escapeHtml(skill.id)}" ${skill.enabled ? "checked" : ""}><span></span></label></header><h4>${escapeHtml(skill.name)}</h4><p>${escapeHtml(skill.description)}</p><div class="skill-meta"><span>v${escapeHtml(skill.version)}</span><span>${escapeHtml(skill.source)}</span></div><div class="permission-list">${skill.permissions.map((permission) => `<span>${escapeHtml(permission)}</span>`).join("")}</div></article>`).join("") || `<div class="empty-state"><strong>No skills installed</strong><span>Install trusted skill packs to extend CodeSpace.</span></div>`;
+      root.innerHTML = response.skills.map((skill) => `<article class="skill-card ${skill.enabled ? "is-enabled" : ""}"><header><div class="skill-icon">${this.skillIcon(skill.tags)}</div><label class="switch"><input type="checkbox" aria-label="Enable ${escapeHtml(skill.name)}" data-skill-id="${escapeHtml(skill.id)}" ${skill.enabled ? "checked" : ""}><span></span></label></header><h4>${escapeHtml(skill.name)}</h4><p>${escapeHtml(skill.description)}</p><div class="skill-meta"><span>v${escapeHtml(skill.version)}</span><span>${escapeHtml(skill.source)}</span></div><div class="permission-list">${skill.permissions.map((permission) => `<span>${escapeHtml(permission)}</span>`).join("")}</div></article>`).join("") || `<div class="empty-state"><strong>No skills installed</strong><span>Install trusted skill packs to extend CodeSpace.</span></div>`;
       $$("[data-skill-id]", root).forEach((input) => input.addEventListener("change", () => void this.toggleSkill(input as HTMLInputElement)));
     } catch (error) {
       root.innerHTML = this.errorCard(this.errorMessage(error));
@@ -1294,7 +1371,7 @@ class CodeSpaceApp {
     root.innerHTML = this.loadingCard("Inspecting MCP servers");
     try {
       const response = await this.api.mcp();
-      root.innerHTML = response.servers.map((server) => `<article class="mcp-card"><div class="mcp-status" data-status="${escapeHtml(server.status)}"></div><div><h4>${escapeHtml(server.name)}</h4><code>${escapeHtml([server.command, ...server.args].join(" "))}</code>${server.last_error ? `<p class="error-text">${escapeHtml(server.last_error)}</p>` : ""}<small>${server.auto_start ? "Autostart enabled" : "Manual start"}${server.env_keys.length ? ` · env: ${server.env_keys.map(escapeHtml).join(", ")}` : ""}</small></div><div class="mcp-actions">${server.status === "running" ? `<button class="button ghost small" data-mcp-action="stop" data-mcp-id="${escapeHtml(server.id)}">Stop</button>` : `<button class="button primary small" data-mcp-action="start" data-mcp-id="${escapeHtml(server.id)}">Start</button>`}<button class="icon-only" data-mcp-action="remove" data-mcp-id="${escapeHtml(server.id)}">×</button></div></article>`).join("") || `<div class="empty-state"><strong>No external MCP servers</strong><span>Register a local command below. Environment values are never exposed in the UI.</span></div>`;
+      root.innerHTML = response.servers.map((server) => `<article class="mcp-card"><div class="mcp-status" data-status="${escapeHtml(server.status)}"></div><div><h4>${escapeHtml(server.name)}</h4><code>${escapeHtml([server.command, ...server.args].join(" "))}</code>${server.last_error ? `<p class="error-text">${escapeHtml(server.last_error)}</p>` : ""}<small>${server.auto_start ? "Autostart enabled" : "Manual start"}${server.env_keys.length ? ` · env: ${server.env_keys.map(escapeHtml).join(", ")}` : ""}</small></div><div class="mcp-actions">${server.status === "running" ? `<button class="button ghost small" data-mcp-action="stop" data-mcp-id="${escapeHtml(server.id)}">Stop</button>` : `<button class="button primary small" data-mcp-action="start" data-mcp-id="${escapeHtml(server.id)}">Start</button>`}<button class="icon-only" aria-label="Remove MCP server" data-mcp-action="remove" data-mcp-id="${escapeHtml(server.id)}">×</button></div></article>`).join("") || `<div class="empty-state"><strong>No external MCP servers</strong><span>Register a local command below. Environment values are never exposed in the UI.</span></div>`;
       $$("[data-mcp-action]", root).forEach((button) => button.addEventListener("click", () => void this.runMcpAction((button as HTMLElement).dataset.mcpAction as "start" | "stop" | "remove", (button as HTMLElement).dataset.mcpId ?? "")));
     } catch (error) {
       root.innerHTML = this.errorCard(this.errorMessage(error));

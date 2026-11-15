@@ -1,6 +1,6 @@
 {
   "name": "codespace-dashboard",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
   "type": "module",
   "description": "TypeScript source for the CodeSpace embedded dashboard. Compiled output is checked into dist/ and embedded into the cse binary via include_str!.",

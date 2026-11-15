@@ -48,7 +48,14 @@ Measure whether CodeSpace reduces context volume, tool calls, latency, and task 
 
 A claim such as “70% fewer tokens” is valid only for the published benchmark scope. Do not generalize a result from one repository, task, model, or language to the entire product.
 
-The pack-level `baseline_tokens` value is an operational estimate: four characters per byte across the matched cell source and cited evidence files. It is useful for local before/after observability but is **not** a publishable model-token claim. Published results must use the target model's real tokenizer on the exact baseline and Context Pack payloads.
+The pack-level `baseline_tokens` value estimates Unicode characters divided by four
+in the distinct files actually selected for the pack. Merely cited evidence files
+do not inflate it. `estimated_tokens` covers the complete canonical Markdown
+prompt; `content_tokens` covers only selected excerpt bodies. JSON transport adds
+inspection metadata and is not the budgeted prompt. A small source file can be
+shorter than the provenance envelope, in which case estimated savings are zero.
+These figures are not model billing. Published claims require the target model's
+real tokenizer, equal tasks, correctness checks and exact measured payloads.
 
 ## Built-in microbenchmark
 

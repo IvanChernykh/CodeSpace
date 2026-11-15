@@ -145,7 +145,7 @@ The smoke value is local repository evidence.
             wait_for_server(process)
 
             status, html, headers = request("GET", "/")
-            if status != 200 or "CodeSpace — IDE Assistant" not in html:
+            if status != 200 or "CodeSpace — Local Workbench" not in html:
                 raise AssertionError(f"dashboard HTML failed: HTTP {status}")
             if html.count("<script") != 1:
                 raise AssertionError("dashboard must expose exactly one frontend runtime")

@@ -74,6 +74,7 @@ pub fn parse_source(
     let mut pending_test_attribute = false;
     let mut scopes: Vec<(u64, usize, i64)> = Vec::new();
     let mut brace_depth: i64 = 0;
+    let mut pending_brace_scope: Option<(u64, usize, i64)> = None;
     let mut python_indents: Vec<(u64, usize)> = Vec::new();
 
     for (zero_index, original_line) in lines.iter().enumerate() {
@@ -120,7 +121,24 @@ pub fn parse_source(
             }
         }
 
-        if let Some((name, mut kind, signature)) = parse_declaration(trimmed, family) {
+        let continuing_declaration = pending_brace_scope.is_some();
+        if let Some((id, start, depth)) = pending_brace_scope {
+            if let Some(symbol) = symbols.iter_mut().find(|symbol| symbol.id == id) {
+                symbol.signature.push(' ');
+                symbol.signature.push_str(&compact_signature(trimmed));
+                symbol.line_end = line_number;
+            }
+            if count_char_outside_strings(trimmed, '{') > 0 {
+                scopes.push((id, start, depth));
+                pending_brace_scope = None;
+            } else if trimmed.ends_with(';') {
+                pending_brace_scope = None;
+            }
+        }
+        if let Some((name, mut kind, signature)) = (!continuing_declaration)
+            .then(|| parse_declaration(trimmed, family))
+            .flatten()
+        {
             if matches!(family, LanguageFamily::Rust)
                 && pending_test_attribute
                 && kind == SymbolKind::Function
@@ -169,6 +187,26 @@ pub fn parse_source(
                 }
                 _ if opens_scope(trimmed) => {
                     scopes.push((id, line_number, brace_depth));
+                }
+                _ if matches!(
+                    family,
+                    LanguageFamily::Rust
+                        | LanguageFamily::JavaScript
+                        | LanguageFamily::Go
+                        | LanguageFamily::CLike
+                ) && matches!(
+                    kind,
+                    SymbolKind::Function
+                        | SymbolKind::Method
+                        | SymbolKind::Test
+                        | SymbolKind::Struct
+                        | SymbolKind::Enum
+                        | SymbolKind::Trait
+                        | SymbolKind::Class
+                        | SymbolKind::Interface
+                ) && !trimmed.ends_with(';') =>
+                {
+                    pending_brace_scope = Some((id, line_number, brace_depth));
                 }
                 _ => {}
             }

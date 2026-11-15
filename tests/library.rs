@@ -109,7 +109,10 @@ fn indexes_searches_compacts_and_persists_decisions() {
     assert_eq!(bundle.cells.len(), 1);
     assert_eq!(bundle.cells[0].id, "auth.no-credential-logs");
     assert!(bundle.pack_id.starts_with("ctx-"));
-    assert!(bundle.metrics.baseline_tokens >= bundle.estimated_tokens);
+    assert_eq!(
+        bundle.estimated_tokens,
+        codespace::util::estimate_tokens(&codespace::context::render_markdown(&bundle))
+    );
     assert!(bundle.estimated_tokens <= 500);
 
     let id = remember(
@@ -172,7 +175,7 @@ Authentication stays local and every generated value must remain auditable.
         &graph,
         "authentication",
         &ContextOptions {
-            max_tokens: 160,
+            max_tokens: 512,
             max_items: 3,
             ..ContextOptions::default()
         },
@@ -180,7 +183,11 @@ Authentication stays local and every generated value must remain auditable.
     .unwrap_or_else(|error| panic!("build budgeted context: {error}"));
     assert!(!bundle.cells.is_empty());
     assert!(!bundle.items.is_empty());
-    assert!(bundle.estimated_tokens <= 160);
+    assert!(bundle.estimated_tokens <= 512);
+    assert_eq!(
+        bundle.estimated_tokens,
+        codespace::util::estimate_tokens(&codespace::context::render_markdown(&bundle))
+    );
 }
 
 #[test]

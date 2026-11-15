@@ -1,11 +1,10 @@
-use crate::context::{ContextOptions, build_context, render_json as render_context_json};
+use crate::context::{ContextOptions, build_context, render_markdown};
 use crate::impact;
 use crate::memory;
 use crate::model::{Error, GraphIndex, Result, SymbolKind};
 use crate::search::find_symbols;
-use crate::secret::redact_secrets;
 use crate::storage;
-use crate::util::{index_path, json_escape, normalized_relative};
+use crate::util::{index_path, json_escape};
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::Path;
@@ -28,6 +27,12 @@ pub fn serve(root: &Path, mut graph: GraphIndex) -> Result<()> {
     for line_result in stdin.lock().lines() {
         let line = line_result?;
         if line.trim().is_empty() {
+            continue;
+        }
+        if serde_json::from_str::<serde_json::Value>(&line).is_err() {
+            stdout.write_all(error_response("null", -32700, "parse error").as_bytes())?;
+            stdout.write_all(b"\n")?;
+            stdout.flush()?;
             continue;
         }
 
@@ -53,7 +58,7 @@ pub fn serve(root: &Path, mut graph: GraphIndex) -> Result<()> {
                     eprintln!("MCP notification rejected: {error}");
                     continue;
                 };
-                error_response(id, -32603, &error.to_string())
+                error_response(id, -32600, &error.to_string())
             }
         };
         stdout.write_all(response.as_bytes())?;
@@ -80,6 +85,16 @@ fn handle_message(
     state: &mut SessionState,
     input: &str,
 ) -> Result<Option<String>> {
+    let parsed: serde_json::Value = serde_json::from_str(input)
+        .map_err(|error| Error::Protocol(format!("invalid JSON-RPC: {error}")))?;
+    if parsed.get("jsonrpc").and_then(serde_json::Value::as_str) != Some("2.0") {
+        return Err(Error::Protocol("jsonrpc must be 2.0".to_string()));
+    }
+    let params = parsed
+        .get("params")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}))
+        .to_string();
     let method = extract_json_string(input, "method")
         .ok_or_else(|| Error::Protocol("missing JSON-RPC method".to_string()))?;
     let request_id = extract_raw_id(input);
@@ -97,7 +112,7 @@ fn handle_message(
                     "initialize must be a request with an id".to_string(),
                 ));
             }
-            let requested = extract_json_string(input, "protocolVersion")
+            let requested = extract_json_string(&params, "protocolVersion")
                 .unwrap_or_else(|| MCP_PROTOCOL_VERSION.to_string());
             let negotiated = MCP_SUPPORTED_PROTOCOL_VERSIONS
                 .iter()
@@ -126,20 +141,29 @@ fn handle_message(
             if request_id.is_none() {
                 return Err(Error::Protocol("tools/call must include an id".to_string()));
             }
-            let name = required_json_string(input, "name")?;
-            let arguments =
-                extract_json_object(input, "arguments").unwrap_or_else(|| "{}".to_string());
-            let (text, is_error) = match call_tool(root, graph, &name, &arguments) {
+            let name = required_json_string(&params, "name")?;
+            let parameters: serde_json::Value = serde_json::from_str(&params)
+                .map_err(|error| Error::Protocol(error.to_string()))?;
+            let arguments = parameters
+                .get("arguments")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({}));
+            let result = validate_arguments(&name, &arguments)
+                .and_then(|()| call_tool(root, graph, &name, &arguments.to_string()));
+            let (text, is_error) = match result {
                 Ok(text) => (text, false),
                 Err(error) => (error.to_string(), true),
             };
-            Ok(Some(success_response(
-                id,
-                &format!(
-                    "{{\"content\":[{{\"type\":\"text\",\"text\":\"{}\"}}],\"isError\":{is_error}}}",
-                    json_escape(&text)
-                ),
-            )))
+            let mut result =
+                serde_json::json!({"content":[{"type":"text","text":text}],"isError":is_error});
+            if !is_error {
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
+                    if value.is_object() {
+                        result["structuredContent"] = value;
+                    }
+                }
+            }
+            Ok(Some(success_response(id, &result.to_string())))
         }
         _ if request_id.is_none() => Ok(None),
         _ => Ok(Some(error_response(id, -32601, "method not found"))),
@@ -164,6 +188,20 @@ fn required_json_string(input: &str, key: &str) -> Result<String> {
 
 fn call_tool(root: &Path, graph: &GraphIndex, name: &str, input: &str) -> Result<String> {
     match name {
+        "cse_status" => Ok(serde_json::json!({"version": env!("CARGO_PKG_VERSION"), "index_revision": graph.index_revision,
+            "files": graph.files.len(), "symbols": graph.symbols.len(), "edges": graph.edges.len(),
+            "decisions": graph.decisions.len()}).to_string()),
+        "cse_bulk_read" => {
+            let input = crate::agent_runtime::parse_json(input)?;
+            Ok(crate::agent_runtime::execute(root, "bulk-read", &input)?.to_string())
+        }
+        "cse_run" => {
+            let mut input = crate::agent_runtime::parse_json(input)?;
+            let operation = input.get("operation").and_then(serde_json::Value::as_str)
+                .ok_or_else(|| Error::InvalidArgument("run operation is required".to_string()))?.to_string();
+            if let Some(object) = input.as_object_mut() { object.remove("operation"); }
+            Ok(crate::agent_runtime::execute(root, &format!("run-{operation}"), &input)?.to_string())
+        }
         "cse_search" => {
             let query = required_json_string(input, "query")?;
             let kind = match extract_json_string(input, "kind") {
@@ -203,7 +241,7 @@ fn call_tool(root: &Path, graph: &GraphIndex, name: &str, input: &str) -> Result
             }
             Ok(format!("[{}]", rows.join(",")))
         }
-        "cse_context" => {
+        "cse_context" | "cse_context_pack" => {
             let query = required_json_string(input, "query")?;
             let mut options = ContextOptions::default();
             options.max_tokens = extract_json_number(input, "max_tokens")
@@ -213,7 +251,8 @@ fn call_tool(root: &Path, graph: &GraphIndex, name: &str, input: &str) -> Result
                 .unwrap_or(options.max_items as i64)
                 .clamp(1, 50) as usize;
             let bundle = build_context(root, graph, &query, &options)?;
-            Ok(render_context_json(&bundle))
+            if name == "cse_context_pack" { Ok(crate::context::render_json(&bundle)) }
+            else { Ok(render_markdown(&bundle)) }
         }
         "cse_impact" => {
             let from = extract_json_string(input, "from").unwrap_or_else(|| "HEAD~1".to_string());
@@ -237,7 +276,9 @@ fn call_tool(root: &Path, graph: &GraphIndex, name: &str, input: &str) -> Result
             let max_lines = extract_json_number(input, "max_lines")
                 .unwrap_or(400)
                 .clamp(1, 5_000) as usize;
-            safe_read(root, &file, max_lines)
+            let start_line = extract_json_number(input, "start_line").unwrap_or(1);
+            if start_line < 1 { return Err(Error::InvalidArgument("start_line must be positive".to_string())); }
+            safe_read(root, &file, start_line as usize, max_lines)
         }
         "cse_task_add" => {
             let title = required_json_string(input, "title")?;
@@ -249,7 +290,7 @@ fn call_tool(root: &Path, graph: &GraphIndex, name: &str, input: &str) -> Result
             let tags: Vec<String> = extract_json_string(input, "tags")
                 .map(|t| t.split(',').map(String::from).collect())
                 .unwrap_or_default();
-            let mut board = crate::tasks::load_tasks(root);
+            let mut board = crate::tasks::transaction(root)?;
             let task = board.add(&title, &description, priority, due, tags);
             let task_id = task.id.clone();
             let task_title = task.title.clone();
@@ -262,7 +303,7 @@ fn call_tool(root: &Path, graph: &GraphIndex, name: &str, input: &str) -> Result
         }
         "cse_task_remove" => {
             let id = required_json_string(input, "id")?;
-            let mut board = crate::tasks::load_tasks(root);
+            let mut board = crate::tasks::transaction(root)?;
             board.remove(&id)?;
             crate::tasks::save_tasks(root, &board)?;
             Ok(format!("Removed task: {id}"))
@@ -272,7 +313,7 @@ fn call_tool(root: &Path, graph: &GraphIndex, name: &str, input: &str) -> Result
             let status_str = required_json_string(input, "status")?;
             let status = crate::tasks::TaskStatus::parse(&status_str)
                 .ok_or_else(|| Error::InvalidArgument(format!("invalid status: {status_str}")))?;
-            let mut board = crate::tasks::load_tasks(root);
+            let mut board = crate::tasks::transaction(root)?;
             board.set_status(&id, status)?;
             crate::tasks::save_tasks(root, &board)?;
             Ok(format!("Updated task {id} -> {}", status.as_str()))
@@ -291,61 +332,128 @@ fn call_tool(root: &Path, graph: &GraphIndex, name: &str, input: &str) -> Result
     }
 }
 
-fn safe_read(root: &Path, requested: &str, max_lines: usize) -> Result<String> {
-    let path = root.join(requested);
-    let canonical = fs::canonicalize(&path)?;
-    let relative = normalized_relative(root, &canonical)?;
-    if relative == ".git"
-        || relative == ".codespace"
-        || relative.starts_with(".git/")
-        || relative.starts_with(".codespace/")
-    {
-        return Err(Error::InvalidArgument(
-            "reading internal metadata is blocked".to_string(),
-        ));
-    }
-    let metadata = fs::metadata(&canonical)?;
-    if !metadata.is_file() {
-        return Err(Error::InvalidArgument(
-            "requested path is not a regular file".to_string(),
-        ));
-    }
-    if metadata.len() > 2_097_152 {
-        return Err(Error::InvalidArgument(
-            "file exceeds 2 MiB read limit".to_string(),
-        ));
-    }
-    let bytes = fs::read(canonical)?;
-    let content = String::from_utf8_lossy(&bytes);
-    let lines: Vec<&str> = content.lines().collect();
-    let mut output = String::new();
-    for (index, line) in lines.iter().take(max_lines).enumerate() {
-        output.push_str(&format!("{:>5} | {}\n", index + 1, line.trim_end()));
-    }
-    if lines.len() > max_lines {
-        output.push_str(&format!("... truncated after {max_lines} lines\n"));
-    }
-    let redacted = redact_secrets(&output);
-    Ok(format!(
-        "file: {relative}\nredactions: {}\n{}",
-        redacted.redactions, redacted.content
-    ))
+fn safe_read(root: &Path, requested: &str, start_line: usize, max_lines: usize) -> Result<String> {
+    Ok(crate::routing::read_source(root, requested, start_line, max_lines)?.render_plain())
 }
 
 fn tools_list_json() -> String {
-    r#"{"tools":[
+    let mut catalog: serde_json::Value = serde_json::from_str(r#"{"tools":[
 {"name":"cse_search","description":"Search indexed symbols, files, and graph relationships.","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"kind":{"type":"string","enum":["function","method","class","struct","enum","trait","interface","module","constant","variable","type_alias","test"]},"limit":{"type":"integer","minimum":1,"maximum":200}},"required":["query"],"additionalProperties":false}},
 {"name":"cse_context","description":"Return a ranked, token-budgeted, secret-redacted code context bundle.","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"max_tokens":{"type":"integer","minimum":128,"maximum":32000},"max_items":{"type":"integer","minimum":1,"maximum":50}},"required":["query"],"additionalProperties":false}},
 {"name":"cse_impact","description":"Analyze the transitive blast radius between two Git refs.","inputSchema":{"type":"object","properties":{"from":{"type":"string"},"to":{"type":"string"},"depth":{"type":"integer","minimum":1,"maximum":10}},"additionalProperties":false}},
 {"name":"cse_history","description":"Read prior engineering decisions by file, symbol, tag, or summary.","inputSchema":{"type":"object","properties":{"target":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false}},
-{"name":"cse_read","description":"Read a project file with path confinement, line limits, and secret redaction.","inputSchema":{"type":"object","properties":{"file":{"type":"string"},"max_lines":{"type":"integer","minimum":1,"maximum":5000}},"required":["file"],"additionalProperties":false}},
+{"name":"cse_read","description":"Read exact source lines before editing. For large multi-file discovery use cse_bulk_read first.","inputSchema":{"type":"object","properties":{"file":{"type":"string"},"start_line":{"type":"integer","minimum":1},"max_lines":{"type":"integer","minimum":1,"maximum":5000}},"required":["file"],"additionalProperties":false}},
+{"name":"cse_bulk_read","description":"Route large repository reads into a bounded, local evidence response with exact source lines. No remote model required. Debug/security reasoning remains with the caller.","inputSchema":{"type":"object","properties":{"question":{"type":"string"},"paths":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32},"max_tokens":{"type":"integer","minimum":128,"maximum":32000},"task_kind":{"type":"string","enum":["inspect","overview","debug","security","architecture"]},"start_line":{"type":"integer","minimum":1},"max_lines":{"type":"integer","minimum":1,"maximum":5000}},"required":["question","paths"],"additionalProperties":false}},
+{"name":"cse_run","description":"Persist a bounded task state and resume from immutable specification, current state and latest observation. Patch uses expected_revision to reject stale writers. No commands are executed.","inputSchema":{"type":"object","properties":{"operation":{"type":"string","enum":["start","show","patch","resume","list"]},"id":{"type":"string"},"initial":{"type":"object"},"expected_revision":{"type":"integer","minimum":0},"patch":{"type":"object"}},"required":["operation"],"additionalProperties":false}},
 {"name":"cse_task_add","description":"Add a project task with priority, due date, and tags.","inputSchema":{"type":"object","properties":{"title":{"type":"string"},"description":{"type":"string"},"priority":{"type":"string","enum":["low","medium","high","critical"]},"due":{"type":"integer"},"tags":{"type":"string"}},"required":["title"],"additionalProperties":false}},
 {"name":"cse_task_list","description":"List all project tasks as JSON.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}},
 {"name":"cse_task_remove","description":"Remove a task by ID.","inputSchema":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"],"additionalProperties":false}},
 {"name":"cse_task_status","description":"Update task status.","inputSchema":{"type":"object","properties":{"id":{"type":"string"},"status":{"type":"string","enum":["todo","in_progress","done","cancelled"]}},"required":["id","status"],"additionalProperties":false}},
 {"name":"cse_github_status","description":"Check GitHub integration link status.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}},
 {"name":"cse_github_issues","description":"List GitHub issues for a repository.","inputSchema":{"type":"object","properties":{"state":{"type":"string","enum":["open","closed","all"]},"owner":{"type":"string"},"repo":{"type":"string"}},"additionalProperties":false}}
-]}"#.replace('\n', "")
+]}"#).unwrap_or_else(|_| serde_json::json!({"tools":[]}));
+    if let Some(tools) = catalog["tools"].as_array_mut() {
+        let mut pack = tools[1].clone();
+        pack["name"] = serde_json::json!("cse_context_pack");
+        pack["description"] = serde_json::json!(
+            "Inspect a Context Pack as structured JSON. For a bounded model prompt use cse_context."
+        );
+        tools.push(pack);
+        tools.push(serde_json::json!({"name":"cse_status","description":"Read the selected repository's index counts and CodeSpace version; does not expose absolute paths.",
+            "inputSchema":{"type":"object","properties":{},"additionalProperties":false}}));
+        for tool in tools {
+            let name = tool["name"].as_str().unwrap_or_default();
+            let read_only = !matches!(
+                name,
+                "cse_run" | "cse_task_add" | "cse_task_status" | "cse_task_remove"
+            );
+            tool["annotations"] = serde_json::json!({"readOnlyHint":read_only,"destructiveHint":name=="cse_task_remove","idempotentHint":read_only,"openWorldHint":name.starts_with("cse_github")});
+        }
+    }
+    catalog.to_string()
+}
+
+fn validate_arguments(name: &str, input: &serde_json::Value) -> Result<()> {
+    let catalog: serde_json::Value = serde_json::from_str(&tools_list_json())
+        .map_err(|error| Error::Protocol(error.to_string()))?;
+    let tool = catalog["tools"]
+        .as_array()
+        .and_then(|tools| tools.iter().find(|tool| tool["name"] == name))
+        .ok_or_else(|| Error::InvalidArgument(format!("unknown tool `{name}`")))?;
+    validate_schema(input, &tool["inputSchema"], "arguments")
+}
+
+fn validate_schema(
+    value: &serde_json::Value,
+    schema: &serde_json::Value,
+    field: &str,
+) -> Result<()> {
+    let bad = || {
+        Error::InvalidArgument(format!(
+            "invalid `{field}`; must match the tool inputSchema"
+        ))
+    };
+    let valid_type = match schema["type"].as_str() {
+        Some("object") => value.is_object(),
+        Some("array") => value.is_array(),
+        Some("string") => value.is_string(),
+        Some("integer") => value.as_i64().is_some(),
+        Some("boolean") => value.is_boolean(),
+        _ => true,
+    };
+    if !valid_type {
+        return Err(bad());
+    }
+    if let Some(options) = schema["enum"].as_array() {
+        if !options.contains(value) {
+            return Err(bad());
+        }
+    }
+    if let Some(n) = value.as_i64() {
+        if schema["minimum"].as_i64().is_some_and(|min| n < min)
+            || schema["maximum"].as_i64().is_some_and(|max| n > max)
+        {
+            return Err(bad());
+        }
+    }
+    if let Some(text) = value.as_str() {
+        if text.len() > 16_384 {
+            return Err(bad());
+        }
+    }
+    if let Some(items) = value.as_array() {
+        if schema["minItems"]
+            .as_u64()
+            .is_some_and(|min| items.len() < min as usize)
+            || schema["maxItems"]
+                .as_u64()
+                .is_some_and(|max| items.len() > max as usize)
+        {
+            return Err(bad());
+        }
+        for item in items {
+            validate_schema(item, &schema["items"], field)?;
+        }
+    }
+    if let Some(object) = value.as_object() {
+        if let Some(required) = schema["required"].as_array() {
+            for key in required.iter().filter_map(serde_json::Value::as_str) {
+                if !object.contains_key(key) {
+                    return Err(bad());
+                }
+            }
+        }
+        for (key, value) in object {
+            let properties = &schema["properties"];
+            if properties.get(key).is_none() && schema["additionalProperties"] == false {
+                return Err(bad());
+            }
+            if let Some(rule) = properties.get(key) {
+                validate_schema(value, rule, key)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn success_response(id: &str, result: &str) -> String {
@@ -360,167 +468,31 @@ fn error_response(id: &str, code: i32, message: &str) -> String {
 }
 
 fn extract_raw_id(input: &str) -> Option<String> {
-    let position = find_json_key(input, "id")?;
-    let mut index = skip_whitespace(input.as_bytes(), position);
-    if input.as_bytes().get(index) == Some(&b'"') {
-        let (_, end) = parse_json_string_at(input, index)?;
-        return Some(input[index..end].to_string());
-    }
-    let start = index;
-    while let Some(byte) = input.as_bytes().get(index) {
-        if matches!(*byte, b',' | b'}' | b' ' | b'\r' | b'\n' | b'\t') {
-            break;
-        }
-        index += 1;
-    }
-    (index > start).then(|| input[start..index].to_string())
+    let value: serde_json::Value = serde_json::from_str(input).ok()?;
+    let id = value.get("id")?;
+    (id.is_string() || id.is_number() || id.is_null()).then(|| id.to_string())
 }
 
 fn extract_json_string(input: &str, key: &str) -> Option<String> {
-    let position = find_json_key(input, key)?;
-    let index = skip_whitespace(input.as_bytes(), position);
-    parse_json_string_at(input, index).map(|(value, _)| value)
+    serde_json::from_str::<serde_json::Value>(input)
+        .ok()?
+        .get(key)?
+        .as_str()
+        .map(str::to_owned)
 }
 
+#[cfg(test)]
 fn extract_json_object(input: &str, key: &str) -> Option<String> {
-    let position = find_json_key(input, key)?;
-    let bytes = input.as_bytes();
-    let mut index = skip_whitespace(bytes, position);
-    if bytes.get(index) != Some(&b'{') {
-        return None;
-    }
-    let start = index;
-    let mut depth = 0;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'{' => depth += 1,
-            b'}' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(input[start..=index].to_string());
-                }
-            }
-            b'"' => {
-                index += 1;
-                while index < bytes.len() && bytes[index] != b'"' {
-                    if bytes[index] == b'\\' {
-                        index += 1;
-                    }
-                    index += 1;
-                }
-            }
-            _ => {}
-        }
-        index += 1;
-    }
-    None
+    let value: serde_json::Value = serde_json::from_str(input).ok()?;
+    let object = value.get(key)?;
+    object.is_object().then(|| object.to_string())
 }
 
 fn extract_json_number(input: &str, key: &str) -> Option<i64> {
-    let position = find_json_key(input, key)?;
-    let mut index = skip_whitespace(input.as_bytes(), position);
-    let start = index;
-    if input.as_bytes().get(index) == Some(&b'-') {
-        index += 1;
-    }
-    while input
-        .as_bytes()
-        .get(index)
-        .is_some_and(|byte| byte.is_ascii_digit())
-    {
-        index += 1;
-    }
-    input[start..index].parse().ok()
-}
-
-fn find_json_key(input: &str, key: &str) -> Option<usize> {
-    let needle = format!("\"{}\"", key);
-    let mut search_start = 0;
-    while let Some(relative) = input[search_start..].find(&needle) {
-        let key_start = search_start + relative;
-        let after_key = key_start + needle.len();
-        let mut index = skip_whitespace(input.as_bytes(), after_key);
-        if input.as_bytes().get(index) == Some(&b':') {
-            index += 1;
-            return Some(index);
-        }
-        search_start = after_key;
-    }
-    None
-}
-
-fn skip_whitespace(bytes: &[u8], mut index: usize) -> usize {
-    while bytes
-        .get(index)
-        .is_some_and(|byte| matches!(*byte, b' ' | b'\r' | b'\n' | b'\t'))
-    {
-        index += 1;
-    }
-    index
-}
-
-fn parse_json_string_at(input: &str, start: usize) -> Option<(String, usize)> {
-    let bytes = input.as_bytes();
-    if bytes.get(start) != Some(&b'"') {
-        return None;
-    }
-    let mut output = String::new();
-    let mut index = start + 1;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'"' => return Some((output, index + 1)),
-            b'\\' => {
-                index += 1;
-                let escaped = *bytes.get(index)?;
-                match escaped {
-                    b'"' => output.push('"'),
-                    b'\\' => output.push('\\'),
-                    b'/' => output.push('/'),
-                    b'b' => output.push('\u{0008}'),
-                    b'f' => output.push('\u{000c}'),
-                    b'n' => output.push('\n'),
-                    b'r' => output.push('\r'),
-                    b't' => output.push('\t'),
-                    b'u' => {
-                        let end = index + 5;
-                        let hex = input.get(index + 1..end)?;
-                        let high = u16::from_str_radix(hex, 16).ok()?;
-                        if (0xd800..=0xdbff).contains(&high) {
-                            if bytes.get(end) != Some(&b'\\') || bytes.get(end + 1) != Some(&b'u') {
-                                return None;
-                            }
-                            let low_end = end + 6;
-                            let low_hex = input.get(end + 2..low_end)?;
-                            let low = u16::from_str_radix(low_hex, 16).ok()?;
-                            if !(0xdc00..=0xdfff).contains(&low) {
-                                return None;
-                            }
-                            let scalar = 0x1_0000
-                                + ((u32::from(high) - 0xd800) << 10)
-                                + (u32::from(low) - 0xdc00);
-                            output.push(char::from_u32(scalar)?);
-                            index = low_end - 1;
-                        } else if (0xdc00..=0xdfff).contains(&high) {
-                            return None;
-                        } else {
-                            output.push(char::from_u32(u32::from(high))?);
-                            index = end - 1;
-                        }
-                    }
-                    _ => return None,
-                }
-            }
-            byte if byte < 0x80 => output.push(char::from(byte)),
-            _ => {
-                let remaining = input.get(index..)?;
-                let character = remaining.chars().next()?;
-                output.push(character);
-                index += character.len_utf8() - 1;
-            }
-        }
-        index += 1;
-    }
-    None
+    serde_json::from_str::<serde_json::Value>(input)
+        .ok()?
+        .get(key)?
+        .as_i64()
 }
 
 #[cfg(test)]
@@ -535,11 +507,22 @@ mod tests {
             extract_json_string(input, "method").as_deref(),
             Some("tools/call")
         );
+        assert_eq!(extract_json_string(input, "query"), None);
+        let params = extract_json_object(input, "params").unwrap_or_default();
+        let arguments = extract_json_object(&params, "arguments").unwrap_or_default();
         assert_eq!(
-            extract_json_string(input, "query").as_deref(),
+            extract_json_string(&arguments, "query").as_deref(),
             Some("login bug")
         );
-        assert_eq!(extract_json_number(input, "max_tokens"), Some(900));
+        assert_eq!(extract_json_number(&arguments, "max_tokens"), Some(900));
+        assert_eq!(
+            extract_raw_id(r#"{"params":{"id":"forged"},"id":9}"#).as_deref(),
+            Some("9")
+        );
+        assert_eq!(
+            extract_json_number(r#"{"max_tokens":1.5}"#, "max_tokens"),
+            None
+        );
     }
 
     #[test]

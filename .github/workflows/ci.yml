@@ -47,6 +47,25 @@ jobs:
         run: cargo +1.97.1 build --locked
       - name: Localhost dashboard runtime smoke
         run: python3 scripts/smoke_dashboard.py
+      - name: Build and test ChatGPT plugin and existing desktop flows
+        working-directory: integrations/chatgpt
+        env:
+          CSE_BINARY: ${{ github.workspace }}/target/debug/cse
+        run: |
+          npm ci
+          npm run build
+          npx playwright install --with-deps chromium
+          npm test
+          python3 ../../scripts/package_plugin.py
+      - name: Upload v3 browser evidence and plugin
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: codespace-v3-e2e
+          path: |
+            artifacts/v3-e2e/
+            artifacts/codespace-plugin-3.0.0.zip
+          if-no-files-found: warn
       - name: Render dashboard in headless Chrome
         shell: bash
         run: |

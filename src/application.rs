@@ -7,9 +7,8 @@ use crate::impact;
 use crate::memory::{self, RememberInput};
 use crate::model::{self, Error, GraphIndex, Result, SymbolKind};
 use crate::search::find_symbols;
-use crate::secret::redact_secrets;
 use crate::storage;
-use crate::util::{json_escape, normalized_relative};
+use crate::util::json_escape;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
@@ -549,63 +548,16 @@ fn action_doctor(ctx: &ActionContext, params: &ActionParams) -> Result<ActionRes
 }
 
 fn action_read(ctx: &ActionContext, params: &ActionParams) -> Result<ActionResult> {
-    let file = params.first_or("").trim().to_string();
-    if file.is_empty() {
-        return Err(Error::InvalidArgument(
-            "file path is required for read".to_string(),
-        ));
-    }
-    if file.contains("..") {
-        return Err(Error::InvalidArgument(
-            "path traversal is not allowed".to_string(),
-        ));
-    }
-    let max_lines = params.get_usize("max-lines").unwrap_or(400).clamp(1, 5_000);
-    let path = ctx.root.join(&file);
-    let canonical = fs::canonicalize(&path)?;
-    let canonical_root = fs::canonicalize(&ctx.root).unwrap_or_else(|_| ctx.root.to_path_buf());
-    if !canonical.starts_with(&canonical_root) {
-        return Err(Error::InvalidArgument(
-            "path escapes project root".to_string(),
-        ));
-    }
-    let relative = normalized_relative(&ctx.root, &canonical)?;
-    if relative == ".git"
-        || relative == ".codespace"
-        || relative.starts_with(".git/")
-        || relative.starts_with(".codespace/")
-    {
-        return Err(Error::InvalidArgument(
-            "reading internal metadata is blocked".to_string(),
-        ));
-    }
-    let metadata = fs::metadata(&canonical)?;
-    if !metadata.is_file() {
-        return Err(Error::InvalidArgument(
-            "requested path is not a regular file".to_string(),
-        ));
-    }
-    if metadata.len() > 2_097_152 {
-        return Err(Error::InvalidArgument(
-            "file exceeds 2 MiB read limit".to_string(),
-        ));
-    }
-    let bytes = fs::read(canonical)?;
-    let content = String::from_utf8_lossy(&bytes);
-    let lines: Vec<&str> = content.lines().collect();
-    let mut output = String::new();
-    for (index, line) in lines.iter().take(max_lines).enumerate() {
-        output.push_str(&format!("{:>5} | {}\n", index + 1, line.trim_end()));
-    }
-    if lines.len() > max_lines {
-        output.push_str(&format!("... truncated after {max_lines} lines\n"));
-    }
-    let redacted = redact_secrets(&output);
-    let result = format!(
-        "file: {relative}\nredactions: {}\n{}",
-        redacted.redactions, redacted.content
-    );
-    Ok(ActionResult::ok(result, ctx.graph.index_revision))
+    let result = crate::routing::read_source(
+        &ctx.root,
+        &params.first_or(""),
+        params.get_usize("start-line").unwrap_or(1),
+        params.get_usize("max-lines").unwrap_or(100),
+    )?;
+    Ok(ActionResult::ok(
+        result.render_plain(),
+        ctx.graph.index_revision,
+    ))
 }
 
 fn action_graph(ctx: &ActionContext, _params: &ActionParams) -> Result<ActionResult> {

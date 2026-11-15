@@ -1,5 +1,35 @@
 # Changelog
 
+## 3.0.0 — 2026-11-15
+
+- Added a portable CodeSpace plugin, a bundled desktop launcher, and an authenticated
+  Streamable HTTP MCP gateway for ChatGPT web/mobile deployment.
+- Added a responsive MCP Apps view for context, targeted source reads, tasks and
+  execution checkpoints. The widget uses the standard host bridge and supports
+  attaching the selected bounded evidence to the chat.
+- Completed bounded read routing and opt-in Spotify Portal bulk-reader execution.
+  Local extraction remains the default; source is not silently sent to a worker.
+- Completed SKILL.state-inspired checkpoints: schema validation, immutable task
+  objectives, revision conflicts, OS locks, atomic persistence and bounded resume.
+- Context budgets now count the complete canonical Markdown prompt. JSON is an
+  inspection envelope. Metrics explicitly report estimates, not provider billing.
+- Fixed irrelevant knowledge-cell ranking, multiline symbol bodies, stale source
+  attribution, unsafe path/symlink reads and private-key line coordinates.
+- Added strict MCP input validation, structured context/status tools and tool
+  annotations. Remote gateways default to read-only and omit local administration
+  and credential tools.
+- Fixed task ID collisions and concurrent read-modify-write loss; writes are atomic
+  and corrupted task stores are retained for recovery.
+- Rebuilding an index with `init --force` preserves decisions, tasks and checkpoints.
+- Improved interface readability and narrow-screen forms; removed repeated section
+  labels. Added real-browser end-to-end tests for all existing desktop screens,
+  legacy REST, official MCP client transport, and phone/tablet/desktop MCP Apps.
+
+Upgrade: install the 3.0 binary, run `cse update --force` in existing repositories,
+then rebuild/install the plugin. Git history is preserved. Hosting a permanent
+HTTPS endpoint and connecting the ChatGPT account remain deployment steps;
+installing the desktop package alone does not enable a phone connection.
+
 ## 2.0.0 — 2026-08-26
 
 ### Repository Brain

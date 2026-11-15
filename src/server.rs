@@ -275,7 +275,7 @@ fn bind_with_dynamic_port(config: &mut ServerConfig) -> Result<TcpListener> {
                 if offset > 0 {
                     eprintln!("Port {start_port} was busy, using port {port} instead");
                 }
-                config.port = port;
+                config.port = listener.local_addr()?.port();
                 return Ok(listener);
             }
             Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => continue,
@@ -356,6 +356,30 @@ fn handle_connection(
     let root = &active_root;
 
     match (method, path) {
+        ("POST", "/api/v1/runtime") => {
+            let body = extract_body(&request);
+            let result = crate::agent_runtime::parse_json(&body).and_then(|value| {
+                let operation = value
+                    .get("operation")
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| {
+                        Error::InvalidArgument("runtime operation is required".to_string())
+                    })?;
+                let input = value
+                    .get("input")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({}));
+                crate::agent_runtime::execute(root, operation, &input)
+            });
+            match result {
+                Ok(value) => write_json_response(&mut stream, 200, &value.to_string()),
+                Err(error) => write_json_response(
+                    &mut stream,
+                    400,
+                    &serde_json::json!({"error": error.to_string()}).to_string(),
+                ),
+            }
+        }
         ("GET", "/") | ("GET", "/dashboard") => serve_dashboard(&mut stream, state),
         ("GET", path) if path.starts_with("/assets/") => match crate::dashboard::asset(path) {
             Some((content_type, body)) => write_asset_response(&mut stream, content_type, &body),
@@ -532,6 +556,11 @@ fn handle_connection(
                 action_params
                     .flags
                     .insert("max-lines".to_string(), v.clone());
+            }
+            if let Some(v) = params.get("start_line") {
+                action_params
+                    .flags
+                    .insert("start-line".to_string(), v.clone());
             }
             match registry.execute("read", &ctx, &action_params) {
                 Ok(result) => write_json_response(
@@ -774,11 +803,11 @@ fn handle_connection(
             let tags: Vec<String> = extract_json_string(&body, "tags")
                 .map(|t| t.split(',').map(String::from).collect())
                 .unwrap_or_default();
-            let mut board = crate::tasks::load_tasks(root);
+            let mut board = crate::tasks::transaction(root)?;
             let task = board.add(&title, &description, priority, None, tags);
             let task_id = task.id.clone();
             let task_title = task.title.clone();
-            let _ = crate::tasks::save_tasks(root, &board);
+            crate::tasks::save_tasks(root, &board)?;
             write_json_response(
                 &mut stream,
                 200,
@@ -800,7 +829,7 @@ fn handle_connection(
                     "{\"error\":\"invalid task status\"}",
                 );
             };
-            let mut board = crate::tasks::load_tasks(root);
+            let mut board = crate::tasks::transaction(root)?;
             match board.set_status(&id, status) {
                 Ok(()) => {
                     crate::tasks::save_tasks(root, &board)?;
@@ -816,7 +845,7 @@ fn handle_connection(
         ("POST", "/api/v1/tasks/remove") => {
             let body = extract_body(&request);
             let id = extract_json_string(&body, "id").unwrap_or_default();
-            let mut board = crate::tasks::load_tasks(root);
+            let mut board = crate::tasks::transaction(root)?;
             match board.remove(&id) {
                 Ok(()) => {
                     crate::tasks::save_tasks(root, &board)?;

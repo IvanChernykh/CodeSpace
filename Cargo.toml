@@ -1,6 +1,6 @@
 [package]
 name = "codespace-cse"
-version = "2.0.0"
+version = "3.0.0"
 edition = "2024"
 rust-version = "1.85"
 authors = ["CodeSpace Contributors"]
@@ -12,33 +12,48 @@ homepage = "https://ivanchernykh.github.io/CodeSpace/"
 keywords = ["code-graph", "mcp", "cli", "static-analysis", "context"]
 categories = ["command-line-utilities", "development-tools"]
 include = [
-    "src/**",
-    "tests/**",
-    "fixtures/**",
-    "scripts/**",
-    "docs/**",
-    "dashboard/src/**",
-    "dashboard/dist/**",
-    "dashboard/package.json",
-    "dashboard/package-lock.json",
-    "dashboard/tsconfig.json",
-    "site/**",
-    ".github/workflows/**",
-    ".codespaceignore",
-    ".gitignore",
-    "Cargo.toml",
-    "Cargo.lock",
-    "rust-toolchain.toml",
-    "README.md",
-    "CODESPACE.md",
-    "LICENSE",
-    "NOTICE",
-    "SECURITY.md",
-    "CONTRIBUTING.md",
-    "CODE_OF_CONDUCT.md",
-    "THIRD_PARTY.md",
-    "CHANGELOG.md",
-    "Makefile",
+    "/src/**",
+    "/tests/**",
+    "/fixtures/**",
+    "/scripts/**",
+    "/docs/**",
+    "/dashboard/src/**",
+    "/dashboard/dist/**",
+    "/dashboard/package.json",
+    "/dashboard/package-lock.json",
+    "/dashboard/tsconfig.json",
+    "/site/**",
+    "/.github/workflows/**",
+    "/.agents/plugins/marketplace.json",
+    "/.codespaceignore",
+    "/.gitignore",
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/rust-toolchain.toml",
+    "/README.md",
+    "/CODESPACE.md",
+    "/integrations/chatgpt/src/**",
+    "/integrations/chatgpt/test/**",
+    "/integrations/chatgpt/scripts/**",
+    "/integrations/chatgpt/package.json",
+    "/integrations/chatgpt/package-lock.json",
+    "/integrations/chatgpt/build.mjs",
+    "/plugins/codespace/plugin.json",
+    "/plugins/codespace/mcp.json",
+    "/plugins/codespace/.mcp.json",
+    "/plugins/codespace/.codex-plugin/plugin.json",
+    "/plugins/codespace/server/launch.mjs",
+    "/plugins/codespace/skills/**",
+    "/plugins/codespace/scripts/**",
+    "/plugins/codespace/assets/**",
+    "/LICENSE",
+    "/NOTICE",
+    "/SECURITY.md",
+    "/CONTRIBUTING.md",
+    "/CODE_OF_CONDUCT.md",
+    "/THIRD_PARTY.md",
+    "/CHANGELOG.md",
+    "/Makefile",
 ]
 
 [lib]
@@ -59,6 +74,7 @@ panic = "abort"
 debug = 1
 
 [dependencies]
+fs2 = "0.4"
 getrandom = "0.3"
 serde_json = "1"
 

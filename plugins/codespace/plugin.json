@@ -1,0 +1,25 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "codespace",
+  "version": "3.0.0",
+  "description": "Inspect repository evidence, build bounded context and resume engineering checkpoints.",
+  "author": {"name": "CodeSpace Contributors"},
+  "license": "Apache-2.0",
+  "repository": "https://github.com/IvanChernykh/CodeSpace",
+  "extensions": {
+    "com.openai": {
+      "onboardingSkill": "./skills/setup/SKILL.md",
+      "interface": {
+        "displayName": "CodeSpace",
+        "shortDescription": "Repository context and tasks",
+        "longDescription": "Find source evidence, build Markdown context packs and resume bounded task checkpoints in a selected repository.",
+        "developerName": "CodeSpace Contributors",
+        "category": "Developer Tools",
+        "capabilities": ["Read", "Interactive"],
+        "defaultPrompt": ["Open my CodeSpace repository.", "Build context for this change.", "Resume my saved engineering task."],
+        "composerIcon": "./assets/icon.svg",
+        "logo": "./assets/icon.svg"
+      }
+    }
+  }
+}

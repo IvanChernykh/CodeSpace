@@ -11,7 +11,10 @@ use std::thread;
 
 pub fn serve(root: &Path, _graph: GraphIndex, address: &str) -> Result<()> {
     let listener = TcpListener::bind(address)?;
-    eprintln!("CodeSpace REST listening on http://{address}");
+    eprintln!(
+        "CodeSpace REST listening on http://{}",
+        listener.local_addr()?
+    );
     let root = Arc::new(root.to_path_buf());
     for stream_result in listener.incoming() {
         match stream_result {

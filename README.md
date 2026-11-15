@@ -1,6 +1,6 @@
 <div align="center">
 
-# CodeSpace 2.0
+# CodeSpace 3.0
 
 **A local-first repository brain that compiles trustworthy, token-efficient context for humans and tools.**
 
@@ -8,7 +8,7 @@
 [![Pages](https://github.com/IvanChernykh/CodeSpace/actions/workflows/pages.yml/badge.svg)](https://ivanchernykh.github.io/CodeSpace/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-65f6d4.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.97.1-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-3.0.0-blue.svg)](CHANGELOG.md)
 
 [Features](#features) &bull; [Install](#install) &bull; [Quick Start](#quick-start) &bull; [Dashboard](#dashboard) &bull; [MCP](#mcp) &bull; [Security](#security)
 
@@ -18,11 +18,19 @@
 
 ## Overview
 
-`cse` is a **small-runtime, local-first** repository intelligence engine written in Rust. It combines reviewable Markdown Context Cells with a semantic code graph, compiles deterministic evidence packs, redacts secrets, analyzes Git impact, and exposes the same model through **CLI, MCP, REST, a desktop mode, an embedded dashboard, and a Rust library** — without sending source code to a cloud service.
+`cse` is a local-first repository intelligence engine written in Rust. It combines reviewable Markdown Context Cells with a code graph, compiles deterministic evidence packs, redacts likely secrets and analyzes Git impact. CLI, MCP, REST, the desktop dashboard and the Rust library share the same core. Reads run locally by default; connecting ChatGPT or explicitly selecting a Portal worker shares the requested evidence with that service.
 
 Git remains the compatible history and transport layer. CodeSpace adds what Git does not model: intent, constraints, decisions, symbol relationships, provenance, token budgets, and pre-change blast radius.
 
-CodeSpace 2.0 introduces:
+CodeSpace 3.0 adds:
+
+- **Plugin and MCP Apps** — a local desktop plugin plus an authenticated HTTP gateway for ChatGPT web/mobile deployment; see [connection and hosting](docs/CHATGPT.md).
+- **Bounded execution state** — current task facts, revision-safe updates and resumable checkpoints; see [execution state](docs/EXECUTION_STATE.md).
+- **Read routing** — exact, budgeted evidence across selected files and an opt-in Portal adapter; see [routing](docs/ROUTING.md).
+- **Production checks** — real MCP SDK clients, browser tests for every desktop screen, mobile/tablet/desktop plugin flows, concurrency and recovery regressions.
+
+Existing capabilities:
+
 - **Action Registry** — unified dispatch for all interfaces
 - **Dashboard** — embedded web UI with graph canvas and live search
 - **Workspace Manager** — multi-repository registration and switching
@@ -80,7 +88,7 @@ cargo install --path . --locked
 
 ```bash
 cse --version
-# cse 2.0.0
+# cse 3.0.0
 ```
 
 ## Quick Start

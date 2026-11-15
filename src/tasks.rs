@@ -2,6 +2,7 @@ use crate::model::{Error, Result};
 use crate::util::{json_escape, now_unix_ms};
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 
 #[derive(Debug, Clone)]
@@ -93,7 +94,17 @@ impl TaskBoard {
         due: Option<u128>,
         tags: Vec<String>,
     ) -> &Task {
-        let id = format!("task-{}", now_unix_ms());
+        static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let id = loop {
+            let candidate = format!(
+                "task-{}-{}",
+                now_unix_ms(),
+                SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            );
+            if !self.tasks.contains_key(&candidate) {
+                break candidate;
+            }
+        };
         let task = Task {
             id: id.clone(),
             title: title.to_string(),
@@ -202,12 +213,135 @@ pub fn load_tasks(root: &Path) -> TaskBoard {
 }
 
 pub fn save_tasks(root: &Path, board: &TaskBoard) -> Result<()> {
+    check_task_store(root)?;
     let path = tasks_path(root);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
+    let mut random = [0_u8; 8];
+    getrandom::fill(&mut random)
+        .map_err(|_| Error::Protocol("task storage entropy unavailable".to_string()))?;
+    let temporary = path.with_extension(format!("tmp-{:x}", u64::from_le_bytes(random)));
+    let serialized = board.to_json();
+    if serialized.len() > 4_194_304 {
+        return Err(Error::InvalidArgument(
+            "task board exceeds 4 MiB".to_string(),
+        ));
     }
-    fs::write(&path, board.to_json())?;
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)?;
+    let result = (|| -> Result<()> {
+        file.write_all(serialized.as_bytes())?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&temporary, &path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result?;
     Ok(())
+}
+
+fn check_task_store(root: &Path) -> Result<()> {
+    for path in [
+        root.join(".codespace"),
+        tasks_path(root),
+        root.join(".codespace/tasks.lock"),
+    ] {
+        match fs::symlink_metadata(&path) {
+            Ok(metadata) => {
+                #[cfg(windows)]
+                let linked = {
+                    use std::os::windows::fs::MetadataExt;
+                    metadata.file_attributes() & 0x400 != 0
+                };
+                #[cfg(not(windows))]
+                let linked = metadata.file_type().is_symlink();
+                if linked {
+                    return Err(Error::InvalidArgument(
+                        "linked task storage is blocked".to_string(),
+                    ));
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    fs::create_dir_all(root.join(".codespace"))?;
+    Ok(())
+}
+
+pub fn load_tasks_checked(root: &Path) -> Result<TaskBoard> {
+    check_task_store(root)?;
+    let path = tasks_path(root);
+    if !path.exists() {
+        return Ok(TaskBoard::new());
+    }
+    if fs::metadata(&path)?.len() > 4_194_304 {
+        return Err(Error::InvalidArgument(
+            "task board exceeds 4 MiB".to_string(),
+        ));
+    }
+    let content = fs::read_to_string(path)?;
+    let value: serde_json::Value = serde_json::from_str(&content).map_err(|_| {
+        Error::CorruptIndex("invalid tasks JSON; original file retained".to_string())
+    })?;
+    let rows = value["tasks"]
+        .as_array()
+        .ok_or_else(|| Error::CorruptIndex("tasks must be an array".to_string()))?;
+    let board = parse_tasks_json(&content);
+    if board.tasks.len() != rows.len() {
+        return Err(Error::CorruptIndex(
+            "invalid or duplicate task records; original file retained".to_string(),
+        ));
+    }
+    Ok(board)
+}
+
+/// Hold an OS lock over the full read-modify-save cycle. Callers retain this
+/// guard until save_tasks completes, so CLI and desktop updates cannot be lost.
+pub struct TaskTransaction {
+    board: TaskBoard,
+    _lock: fs::File,
+}
+impl std::ops::Deref for TaskTransaction {
+    type Target = TaskBoard;
+    fn deref(&self) -> &Self::Target {
+        &self.board
+    }
+}
+impl std::ops::DerefMut for TaskTransaction {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.board
+    }
+}
+pub fn transaction(root: &Path) -> Result<TaskTransaction> {
+    check_task_store(root)?;
+    let lock = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(root.join(".codespace/tasks.lock"))?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    loop {
+        match fs2::FileExt::try_lock_exclusive(&lock) {
+            Ok(()) => break,
+            Err(error)
+                if (error.kind() == std::io::ErrorKind::WouldBlock
+                    || error.raw_os_error() == Some(33))
+                    && std::time::Instant::now() < deadline =>
+            {
+                std::thread::sleep(std::time::Duration::from_millis(10))
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(TaskTransaction {
+        board: load_tasks_checked(root)?,
+        _lock: lock,
+    })
 }
 
 fn parse_tasks_json(content: &str) -> TaskBoard {

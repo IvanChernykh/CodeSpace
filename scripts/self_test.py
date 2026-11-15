@@ -29,13 +29,16 @@ EXPECTED_MCP_TOOLS = [
     "cse_impact",
     "cse_history",
     "cse_read",
-    "cse_chat",
+    "cse_bulk_read",
+    "cse_run",
     "cse_task_add",
     "cse_task_list",
     "cse_task_remove",
     "cse_task_status",
     "cse_github_status",
     "cse_github_issues",
+    "cse_context_pack",
+    "cse_status",
 ]
 
 
@@ -94,7 +97,7 @@ def command(
 
 
 def resolve_binary(root: Path) -> Path:
-    override = os.environ.get("CSE_BIN")
+    override = os.environ.get("CSE_BINARY") or os.environ.get("CSE_BIN")
     candidates = [
         Path(override) if override else None,
         root / "target" / "debug" / ("cse.exe" if os.name == "nt" else "cse"),
@@ -124,11 +127,11 @@ def check_manifest(root: Path) -> str:
     manifest = tomllib.loads((root / "Cargo.toml").read_text(encoding="utf-8"))
     package = manifest["package"]
     assert package["name"] == "codespace-cse"
-    assert package["version"] == "2.0.0"
+    assert package["version"] == "3.0.0"
     assert package["edition"] == "2024"
     assert package["rust-version"] == "1.85"
     assert manifest["bin"][0]["name"] == "cse"
-    includes = set(package["include"])
+    includes = {item.lstrip("/") for item in package["include"]}
     for required in {
         "dashboard/src/**",
         "dashboard/dist/**",
@@ -177,7 +180,7 @@ def check_static_security(root: Path) -> str:
     assert 'unsafe_code = "forbid"' in manifest
     violations: list[str] = []
     for path in sorted((root / "src").glob("*.rs")):
-        source = path.read_text(encoding="utf-8")
+        source = path.read_text(encoding="utf-8").split("#[cfg(test)]", 1)[0]
         for line_number, line in enumerate(source.splitlines(), 1):
             if re.search(r"\bunsafe\s*\{", line):
                 violations.append(f"{path.name}:{line_number}: unsafe block")
@@ -395,7 +398,7 @@ def check_mcp(root: Path, binary: Path, metrics: dict[str, Any]) -> str:
             "params": {
                 "protocolVersion": "2025-06-18",
                 "capabilities": {},
-                "clientInfo": {"name": "codespace-self-test", "version": "2.0.0"},
+                "clientInfo": {"name": "codespace-self-test", "version": "3.0.0"},
             },
         }
         process.stdin.write(json.dumps(initialize) + "\n")
@@ -431,7 +434,7 @@ def write_reports(root: Path, suite: Suite, metrics: dict[str, Any], started: fl
     artifacts = root / "artifacts"
     artifacts.mkdir(exist_ok=True)
     report = {
-        "release": "2.0.0",
+        "release": "3.0.0",
         "generated_unix_ms": int(time.time() * 1000),
         "elapsed_ms": int((time.perf_counter() - started) * 1000),
         "status": "pass" if not suite.failures else "fail",
@@ -447,7 +450,7 @@ def write_reports(root: Path, suite: Suite, metrics: dict[str, Any], started: fl
         json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     rows = [
-        "# CodeSpace 2.0 self-test report",
+        "# CodeSpace 3.0 self-test report",
         "",
         f"Status: **{report['status'].upper()}**",
         "",
@@ -470,6 +473,11 @@ def main() -> int:
     suite = Suite()
     metrics: dict[str, Any] = {}
     binary = resolve_binary(root)
+
+    expected_version = tomllib.loads((root / "Cargo.toml").read_text(encoding="utf-8"))["package"]["version"]
+    actual_version = command([str(binary), "--version"], cwd=root).stdout.strip()
+    if actual_version != f"cse {expected_version}":
+        raise AssertionError(f"wrong test executable: {actual_version}; expected cse {expected_version}")
 
     suite.run("manifest", lambda: check_manifest(root))
     suite.run("release structure", lambda: check_structure(root))

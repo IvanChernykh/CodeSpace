@@ -20,7 +20,7 @@ if missing:
     raise SystemExit(f"dashboard TypeScript references missing static IDs: {missing}")
 
 required_views = {
-    "overview", "graph", "context", "impact", "assistant", "tasks",
+    "overview", "graph", "context", "impact", "tasks",
     "history", "workspaces", "skills", "mcp", "settings", "github",
 }
 views = set(re.findall(r'data-view="([a-z-]+)"', html))

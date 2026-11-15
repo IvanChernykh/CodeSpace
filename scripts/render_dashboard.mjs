@@ -102,7 +102,7 @@ async function main() {
       })()`);
       if (
         lastState?.readyState === "complete"
-        && lastState?.title === "CodeSpace — IDE Assistant"
+        && lastState?.title === "CodeSpace — Local Workbench"
         && lastState?.connection === "online"
         && lastState?.commandCenter === true
         && lastState?.topologyNodes > 0

@@ -1,0 +1,14 @@
+import {randomBytes} from 'node:crypto';
+import {mkdir,writeFile,realpath} from 'node:fs/promises';
+import path from 'node:path';
+const args=process.argv.slice(2),get=key=>args[args.indexOf(key)+1];
+if(!args.includes('--workspace')||!args.includes('--public-url')||!args.includes('--output'))throw Error('Expected --workspace <absolute repository> --public-url <https origin> --output <private config.local.json>');
+const url=new URL(get('--public-url'));
+if(url.protocol!=='https:'||url.pathname!=='/'||url.username||url.password||url.search||url.hash)throw Error('Public URL must be an HTTPS origin without credentials');
+const file=path.resolve(get('--output'));
+if(!file.endsWith('.local.json'))throw Error('Use a .local.json file excluded from Git');
+await mkdir(path.dirname(file),{recursive:true});
+const workspace=await realpath(get('--workspace'));
+const config={workspace,binary:args.includes('--binary')?get('--binary'):'cse',publicUrl:url.origin,token:randomBytes(32).toString('hex'),allowWrites:false,port:8787};
+await writeFile(file,JSON.stringify(config,null,2)+'\n',{mode:0o600,flag:'wx'});
+console.log('Private configuration created. Serve it with node dist/server.mjs --config <file>. Configure your HTTPS reverse proxy to port 8787. Enter its token only in the ChatGPT connection credential form.');

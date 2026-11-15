@@ -1,0 +1,9 @@
+{
+  "name": "codespace",
+  "version": "3.0.0",
+  "description": "Repository evidence and recoverable task state",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "onboardingSkill": "./skills/setup/SKILL.md",
+  "interface": {"displayName":"CodeSpace","shortDescription":"Repository context and tasks","developerName":"CodeSpace Contributors","category":"Developer Tools","composerIcon":"./assets/icon.svg","logo":"./assets/icon.svg","capabilities":["Read","Interactive"]}
+}

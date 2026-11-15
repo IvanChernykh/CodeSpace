@@ -26,6 +26,8 @@ where
         "init" => command_init(&parsed),
         "update" | "sync" => command_update(&parsed),
         "context" => command_context(&parsed),
+        "bulk-read" => command_runtime(&parsed, "bulk-read"),
+        "run" => command_runtime(&parsed, "run"),
         "find" | "search" => command_find(&parsed),
         "impact" => command_impact(&parsed),
         "history" => command_history(&parsed),
@@ -61,10 +63,12 @@ where
 fn command_init(args: &ParsedArgs) -> Result<i32> {
     let root = root_from_args(args)?;
     let force = args.flag("force");
-    if force && root.join(".codespace").exists() {
-        fs::remove_dir_all(root.join(".codespace"))?;
+    if force && index_path(&root).exists() {
+        // Rebuild indexed source while preserving decisions, tasks and execution runs.
+        storage::load(&root)?;
+    } else {
+        storage::initialize(&root, false)?;
     }
-    storage::initialize(&root, false)?;
     let stats = indexer::build(
         &root,
         &IndexOptions {
@@ -643,6 +647,18 @@ fn option_expects_value(key: &str) -> bool {
     matches!(
         key,
         "path"
+            | "question"
+            | "worker"
+            | "data"
+            | "patch"
+            | "objective"
+            | "specification"
+            | "expected-revision"
+            | "start-line"
+            | "max-snippets"
+            | "context-lines"
+            | "line-threshold"
+            | "task-kind"
             | "query"
             | "format"
             | "output"
@@ -927,52 +943,107 @@ fn command_settings(args: &ParsedArgs) -> Result<i32> {
 fn command_read(args: &ParsedArgs) -> Result<i32> {
     let root = root_from_args(args)?;
     let file = args.positionals.first().map_or("", String::as_str);
-    if file.is_empty() {
-        return Err(Error::InvalidArgument("read requires <file>".to_string()));
-    }
+    let start_line = args
+        .value("start-line")
+        .map_or(Ok(1), |v| v.parse::<usize>())
+        .map_err(|_| Error::InvalidArgument("invalid start-line".to_string()))?;
     let max_lines = args
         .value("max-lines")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(400)
-        .clamp(1, 5_000);
-    let path = root.join(file);
-    let canonical = fs::canonicalize(&path)?;
-    let relative = crate::util::normalized_relative(&root, &canonical)?;
-    if relative == ".git"
-        || relative == ".codespace"
-        || relative.starts_with(".git/")
-        || relative.starts_with(".codespace/")
-    {
-        return Err(Error::InvalidArgument(
-            "reading internal metadata is blocked".to_string(),
-        ));
+        .map_or(Ok(100), |v| v.parse::<usize>())
+        .map_err(|_| Error::InvalidArgument("invalid max-lines".to_string()))?;
+    let result = crate::routing::read_source(&root, file, start_line, max_lines)?;
+    let rendered = if args.value("format").is_some_and(|v| v == "json") {
+        result.to_json().to_string()
+    } else {
+        result.render_plain()
+    };
+    write_output(args, &rendered)?;
+    Ok(0)
+}
+
+fn command_runtime(args: &ParsedArgs, command: &str) -> Result<i32> {
+    let root = root_from_args(args)?;
+    let (operation, input) = if command == "bulk-read" {
+        let mut input = serde_json::Map::new();
+        input.insert(
+            "question".to_string(),
+            serde_json::Value::String(
+                args.value("question")
+                    .or_else(|| args.value("query"))
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+        );
+        input.insert("paths".to_string(), serde_json::json!(args.positionals));
+        for key in [
+            "max-tokens",
+            "max-snippets",
+            "context-lines",
+            "line-threshold",
+            "start-line",
+            "max-lines",
+        ] {
+            if let Some(value) = args.value(key) {
+                let number = value
+                    .parse::<u64>()
+                    .map_err(|_| Error::InvalidArgument(format!("invalid {key}")))?;
+                input.insert(key.replace('-', "_"), serde_json::json!(number));
+            }
+        }
+        if let Some(kind) = args.value("task-kind") {
+            input.insert("task_kind".to_string(), serde_json::json!(kind));
+        }
+        if let Some(worker) = args.value("worker") {
+            input.insert("worker".to_string(), serde_json::json!(worker));
+        }
+        ("bulk-read".to_string(), serde_json::Value::Object(input))
+    } else {
+        let sub = args.positionals.first().map_or("list", String::as_str);
+        let id = args
+            .value("id")
+            .or_else(|| args.positionals.get(1))
+            .cloned()
+            .unwrap_or_default();
+        let input = match sub {
+            "start" => {
+                let initial = if let Some(data) = args.value("data") {
+                    crate::agent_runtime::parse_json(data)?
+                } else {
+                    serde_json::json!({
+                        "objective": args.value("objective").map_or("", String::as_str),
+                        "specification": args.value("specification").map_or("Inspect evidence, make scoped changes, verify the outcome, and preserve the next action.", String::as_str)
+                    })
+                };
+                serde_json::json!({"id": id, "initial": initial})
+            }
+            "patch" => {
+                let revision = args
+                    .value("expected-revision")
+                    .and_then(|v| v.parse::<u64>().ok())
+                    .ok_or_else(|| {
+                        Error::InvalidArgument("run patch requires --expected-revision".to_string())
+                    })?;
+                let patch = args.value("patch").ok_or_else(|| {
+                    Error::InvalidArgument("run patch requires --patch JSON".to_string())
+                })?;
+                serde_json::json!({"id": id, "expected_revision": revision, "patch": crate::agent_runtime::parse_json(patch)?})
+            }
+            "show" | "resume" => serde_json::json!({"id": id}),
+            "list" => serde_json::json!({}),
+            _ => {
+                return Err(Error::InvalidArgument(
+                    "run supports start, show, patch, resume, list".to_string(),
+                ));
+            }
+        };
+        (format!("run-{sub}"), input)
+    };
+    let result = crate::agent_runtime::execute(&root, &operation, &input)?;
+    if operation == "run-resume" && args.value("format").is_some_and(|v| v == "plain") {
+        write_output(args, result["prompt"].as_str().unwrap_or(""))?;
+    } else {
+        write_output(args, &result.to_string())?;
     }
-    let metadata = fs::metadata(&canonical)?;
-    if !metadata.is_file() {
-        return Err(Error::InvalidArgument(
-            "requested path is not a regular file".to_string(),
-        ));
-    }
-    if metadata.len() > 2_097_152 {
-        return Err(Error::InvalidArgument(
-            "file exceeds 2 MiB read limit".to_string(),
-        ));
-    }
-    let bytes = fs::read(canonical)?;
-    let content = String::from_utf8_lossy(&bytes);
-    let lines: Vec<&str> = content.lines().collect();
-    let mut output = String::new();
-    for (index, line) in lines.iter().take(max_lines).enumerate() {
-        output.push_str(&format!("{:>5} | {}\n", index + 1, line.trim_end()));
-    }
-    if lines.len() > max_lines {
-        output.push_str(&format!("... truncated after {max_lines} lines\n"));
-    }
-    let redacted = crate::secret::redact_secrets(&output);
-    println!(
-        "file: {relative}\nredactions: {}\n{}",
-        redacted.redactions, redacted.content
-    );
     Ok(0)
 }
 
@@ -1007,7 +1078,7 @@ fn command_task(args: &ParsedArgs) -> Result<i32> {
         .first()
         .map(String::as_str)
         .unwrap_or("list");
-    let mut board = crate::tasks::load_tasks(&root);
+    let mut board = crate::tasks::transaction(&root)?;
 
     match sub {
         "list" | "ls" => {
@@ -1234,7 +1305,12 @@ CORE COMMANDS
   cse impact [--from HEAD~1] [--to HEAD] [--depth 3] [--format plain|json]
   cse history [target] [--limit 10] [--format plain|json]
   cse remember --summary <text> [--file path] [--symbol name] [--rationale text]
-  cse read <file> [--max-lines 400]
+  cse read <file> [--start-line 1] [--max-lines 100]
+  cse bulk-read <files...> --question <text> [--max-tokens 1200] [--task-kind inspect]
+  cse run start <id> --objective <text> [--specification <text>]
+  cse run patch <id> --expected-revision <n> --patch <json>
+  cse run show|resume <id> [--format json|plain]
+  cse run list
   cse graph [--format json|summary]
 
 TASK COMMANDS (project task management with calendar)

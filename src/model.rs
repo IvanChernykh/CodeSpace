@@ -332,6 +332,10 @@ pub struct ContextItem {
     pub score_milli: i64,
     pub content: String,
     pub redactions: usize,
+    /// Non-cryptographic fingerprints for drift detection, not signatures.
+    pub source_hash: String,
+    pub content_hash: String,
+    pub truncated: bool,
 }
 
 /// A human-reviewable Markdown knowledge cell selected for an AI context pack.
@@ -355,6 +359,8 @@ pub struct ContextCellItem {
     pub content: String,
     pub content_hash: String,
     pub redactions: usize,
+    pub source_hash: String,
+    pub truncated: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -365,6 +371,10 @@ pub struct ContextPackMetrics {
     pub compression_percent: u8,
     pub code_items: usize,
     pub knowledge_cells: usize,
+    pub content_tokens: usize,
+    pub estimation_method: &'static str,
+    pub budget_scope: &'static str,
+    pub source_baseline_scope: &'static str,
 }
 
 #[derive(Debug, Clone)]
